@@ -1,14 +1,14 @@
 # STM32F411RET6 (LQFP-64) pin map — verified 2026-07-04
 
 Full pin-function audit against ST datasheet Table 8 (DocID026289). U6 = MCU.
+Re-verified against `Netlist_Schematic1_2026-07-04.net` (171 comp / 133 nets).
 
-## Power (CRITICAL FINDING)
-LQFP64 has 5 VDD/VSS pairs. Netlist wires only 4 — **pins 18 (VSS) and 19
-(VDD) are UNCONNECTED**. Must fix: 18→GND, 19→3V3, +100nF decoupling. Likely
-a library symbol missing that pair; verify symbol exposes pins 18/19.
-| VSS | 12(VSSA)✓ 18✗ 31✓ 47✓ 63✓ |
-| VDD | 13(VDDA)✓ 19✗ 32✓ 48✓ 64✓ |
-VBAT(1)→3V3 ✓, VCAP_1(30)→2.2µF ✓.
+## Power — all 5 VDD/VSS pairs wired ✓ (was the critical finding, now FIXED)
+An earlier export left pins 18 (VSS) / 19 (VDD) unconnected; the current netlist
+wires both. Verified:
+| VSS | 12(VSSA)✓ 18✓ 31✓ 47✓ 63✓ |
+| VDD | 13(VDDA)✓ 19✓ 32✓ 48✓ 64✓ |
+VBAT(1)→3V3 ✓, VCAP_1(30)→2.2µF (C22) ✓.
 
 ## Encoders — hardware quadrature (TIM CHx), all verified ✓
 | Enc | A / B | pins | Timer |
@@ -21,22 +21,27 @@ VBAT(1)→3V3 ✓, VCAP_1(30)→2.2µF ✓.
 All 5 on distinct timers, valid CH1/CH2 pairs. FW: ENC5 must use TIM5 (AF2)
 not TIM2 (PA0/PA1 are also TIM2 CH1/CH2, but TIM2 = ENC2). Receiver outputs
 (AM26LV32E, 3.3V) go direct to MCU — safe for PA0 (TC/3.3V-only).
+As built the A/B pairs come off **3 shared quad receivers** (U7=ENC1/2,
+U8=ENC3/4, U9=ENC5). The pending 5-per-DB9 + **index-Z** restructure will add
+5 Z inputs — land them on the free GPIOs listed below (Z is a plain input).
 
 ## Comms
 - USART1: PA15 TX (50, AF7), PA10 RX (43, AF7), PA11 DE (44, GPIO) ✓
 - I2C1: PB8 SCL (61, AF4), PB9 SDA (62, AF4) ✓ — NO external pull-ups yet (expansion bus)
-- SPI2: PB12 NSS / PB13 SCK / PB14 MISO / PB15 MOSI (33-36, AF5) ✓ — WIP, not wired
+- SPI2: PB12 NSS / PB13 SCK / PB14 MISO / PB15 MOSI (33-36, AF5) ✓ — **wired to
+  W5500** (SCSn/SCLK/MISO/MOSI); INTn→PC6 (37), RSTn→PC7 (38), both pulled up
 - SWD: PA13 SWDIO (46), PA14 SWCLK (49) ✓
 
-## Motor (GPIO → ULN2003)
+## Motor (GPIO → ULN2003 U16 → CN6/CN7)
 | Sig | pin | note |
 |---|---|---|
-| M_ENA | PC10 | ✓ |
-| M1_DIR/STEP | PC11/PC12 | ✓ |
-| M2_STEP/DIR | PD2/PB4 | ✓ (PB4=NJTRST, ok for SWD) |
-| M3_STEP/DIR | PB5 / **PC13** | ⚠️ PC13 backup-domain: ≤3mA, "no current source" — move M3_DIR to a free GPIO |
-STEP pins not on free timer channels (TIM1-5 used by encoders) → step gen is
-GPIO/DMA, not HW PWM. ULN2003 slow (~1µs).
+| M_ENA | PC10 (51) | ✓ shared enable |
+| M1_STEP/DIR | PC12/PC11 (53/52) | ✓ |
+| M2_STEP/DIR | PC0/PC1 (8/9) | ✓ (was PD2/PB4) |
+| M3_STEP/DIR | PC2/PC3 (10/11) | ✓ M3_DIR moved off PC13 → PC3 |
+All 7 channels MCU→ULN2003 (U16)→CN6/CN7 verified. STEP pins not on free timer
+channels (TIM1-5 used by encoders) → step gen is GPIO/DMA, not HW PWM. ULN2003
+slow (~1µs).
 
 ## Other I/O
 - ISO_IN1-6: PC4,PC5,PB0,PB1,PB2,PB10 (24-29) GPIO in ✓
@@ -45,10 +50,13 @@ GPIO/DMA, not HW PWM. ULN2003 slow (~1µs).
 - BOOT0(60): R12 1.5k pull-down→GND, BOOT1 button→3V3 ✓
 - Crystal: PH0/PH1 (5/6) ✓
 
-## Free GPIOs (spare)
-PC0,PC1,PC2,PC3 (8-11); PA2,PA3,PA4 (16,17,20); PC6,PC7,PC8,PC9 (37-40);
-PC14,PC15 (3,4). Use one for M3_DIR relocation.
+## Free GPIOs (spare) — 11 pins, verified from netlist
+PC13 (2), PC14 (3), PC15 (4), PA2 (16), PA3 (17), PA4 (20), PC8 (39), PC9 (40),
+PD2 (54), PB4 (56, NJTRST), PB5 (57). (PC0–3 now motors; PC6/PC7 now W5500
+INT/RST.) This pool covers the 5 index-Z inputs for the pending encoder
+restructure. Avoid PC13 where drive current is needed (backup-domain pin: ≤3mA,
+no current source) — fine as a plain input.
 
 ## JTAG note
-SWD-only: PA15=JTDI→USART1_TX, PB3=JTDO/SWO→ENC2B, PB4=NJTRST→M2_DIR all
-repurposed. Fine — lose JTAG + SWO trace, keep SWD.
+SWD-only: PA15=JTDI→USART1_TX and PB3=JTDO/SWO→ENC2B are repurposed. PB4=NJTRST
+is now FREE (M2_DIR moved to PC1). Fine — lose JTAG + SWO trace, keep SWD.

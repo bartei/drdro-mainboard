@@ -1,7 +1,12 @@
 # Full-board review findings — 2026-07-04
 
-Netlist: Netlist_Schematic1_2026-07-04.net (145 comp / 120 nets). Full audit
-incl. MCU pin-function check vs F411 AF table, reset, boot0, all I/O.
+Netlist: Netlist_Schematic1_2026-07-04.net (145 comp / 120 nets at review time).
+Full audit incl. MCU pin-function check vs F411 AF table, reset, boot0, all I/O.
+
+> **Re-verified 2026-07-04** against the current export (**171 comp / 133 nets,
+> zero dangling nets**): findings below still hold; deltas ticked inline.
+> `STATUS.md` is the authoritative status. Biggest open item now: the encoder
+> 5-chip-per-DB9 + index-Z restructure (see `encoder_input_todo.md`).
 
 ## 🔴 Critical (blocks bring-up)
 - [x] MCU VDD pin 19 + VSS pin 18 — FIXED & verified: 18→GND, 19→3V3, all 5
@@ -17,6 +22,8 @@ incl. MCU pin-function check vs F411 AF table, reset, boot0, all I/O.
       CN7 (M2_DIR). Electrically fine; regroup per-motor if desired. CN6/CN7
       are signal-only (no GND/5V) → assume opto-isolated drivers, COM→driver +V.
 - [ ] I2C: add SDA/SCL pull-ups + ESD footprints (expansion bus, still missing).
+- [ ] Encoder front-end: only 3 shared quad receivers (A/B, no Z) — the agreed
+      5-chip-per-DB9 + index-Z restructure is still owed. See encoder_input_todo.md.
 
 ## ✅ Verified correct
 - [x] All 5 encoders on TIM1-5 CH1/CH2 (hardware quadrature) — pin choice good
@@ -48,6 +55,6 @@ incl. MCU pin-function check vs F411 AF table, reset, boot0, all I/O.
 
 ## ⚪ Minor / carryover
 - [ ] RESET optional 100nF cap to GND
-- [ ] SPI (PB12-15) WIP — connect to device/header
+- [x] SPI (PB12-15) now wired to W5500 (SCSn/SCLK/MISO/MOSI + INTn/RSTn) — verified
 - [ ] Carryover verify: U5 SIT3088 EP→GND, crystal load caps vs CL, ISO_IN
       firmware pull-ups

@@ -5,6 +5,25 @@ Accept BOTH single-ended TTL and differential RS-422 encoder/scale inputs on
 the same DB9, with **no mux and no mode selection** — "just works" like the
 cheap Chinese DROs. Approved 2026-07-04.
 
+## AS-BUILT vs TARGET (status 2026-07-04)
+**As built** (netlist `Netlist_Schematic1_2026-07-04.net`, verified): the mux is
+gone and the biased-receiver technique is in — but on **3 shared quad receivers,
+A/B only**:
+- U7 = ENC1 (A/B) + ENC2 (A/B); U8 = ENC3 + ENC4; U9 = ENC5 + 1 spare channel
+- Per channel: 2.2k pull-up on A+, 2.2k divider on A− (~2.0–2.35V ref), no term
+- J1→ENC1 … J5→ENC5; receiver outputs direct to MCU (PA8/9, PA5/PB3, PA6/7,
+  PB6/7, PA0/1). **No index-Z wired.**
+
+**Target** (design of record, still to implement): **one AM26LV32E per DB9
+(5 chips)** with A/B/**Z** + spare — the "Modularity" section below. Outstanding
+work: add 2 receivers, split the wiring per-axis, route Z, re-check 5× stock.
+
+**Z-routing constraint:** each DB9 (DS1037-09) has only **pin 6** free — pins
+5/9 carry the I²C SCL/SDA expansion bus. So a *differential* Z (Z+/Z−) has no
+room unless I²C is dropped/moved; a **single-ended Z on pin 6** is the drop-in
+option. MCU side is not the limit: 11 free GPIOs (PC13/14/15, PA2/3/4, PC8/9,
+PD2, PB4/5) — ample for 5 Z inputs. Tracker: `encoder_input_todo.md`.
+
 ## Decision
 Replace the current dual-path front-end (AM26LV32E differential receiver +
 NC7SZ157 mux + TTL_SEL) with a **single universal biased differential

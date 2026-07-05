@@ -1,37 +1,38 @@
-# Encoder input stage todo
+# Encoder input stage — todo (LIVE tracker)
 
-> ⚠️ HISTORICAL working notes (design evolution). Implementation is done & verified.
-> See **STATUS.md** for the authoritative current state and open items.
+> Detail + rationale live in `encoder_input_design.md`. As-built = 3 shared quad
+> receivers (A/B only); the 5-chip-per-DB9 + index-Z restructure is still owed.
+> Verified against `Netlist_Schematic1_2026-07-04.net` (171 comp / 133 nets).
 
 ## Phase 0 — Design decisions
 - [x] Approach: universal biased differential receiver, no mux, no mode select
 - [x] Receiver part confirmed: AM26LV32E (3.3V out safe for PA0; ±14V rugged inputs)
-- [x] Modularity: one quad receiver per DB9 connector (A/B/Z + spare)
+- [x] Design of record: one quad receiver per DB9 (5 chips), A/B/Z + spare
 
 ## Phase 1 — Circuit values
-- [ ] Compute bias divider stiff enough vs 4–17kΩ receiver input R (~2.2k/2.2k) OR shared buffered 2.5V ref + per-channel series R
-- [ ] A+ pull-up to 5V value (~10k)
-- [ ] Optional series protection R (~150Ω) per DB9 line
-- [ ] Confirm 2.5V ref = ½ of 5V scale supply
+- [x] Bias divider = 2.2k/2.2k (stiff vs 4–17kΩ receiver Rin); ref ~2.0–2.35V
+- [x] A+ pull-up = 2.2k to 5V (fail-safe high)
+- [x] No termination (would collapse the single-ended reference)
+- [ ] Optional ~150Ω series protection R per DB9 line — not placed
 
-## Phase 2 — Schematic changes
-- [ ] Delete NC7SZ157 muxes (U22–U31), R78 (1k I0), R47 (120Ω term)
-- [ ] Re-org to one AM26LV32E per DB9 (5 chips); wire A/B (+Z optional)
-- [ ] Route receiver outputs directly to MCU encoder pins
-- [ ] Tie spare receiver channel inputs to defined level
-- [ ] Free/reuse TTL_SEL GPIO (PA4)
-- [ ] Verify JLCPCB stock covers 5× AM26LV32E per board (≥1000 rule)
+## Phase 2 — A/B front-end (AS BUILT, verified)
+- [x] NC7SZ157 muxes + TTL_SEL removed; receiver outputs direct to MCU
+- [x] 3 shared quad receivers: U7=ENC1/2, U8=ENC3/4, U9=ENC5+spare
+- [x] Per-channel 2.2k pull-up (A+) / 2.2k divider (A−) / no term
+- [x] U9 spare channel inputs tied to a defined level
+- [x] Right-angle DB9 DS1037-09FNAKT74-0CC used
+- [x] Connector mapping J1→ENC1 … J5→ENC5 (each on its own encoder) verified
+- [x] Outputs on correct MCU pins: PA8/9, PA5/PB3, PA6/7, PB6/7, PA0/1
+- [x] No dangling nets in front-end
 
-## Phase 2 — implementation review (2026-07-04)
-- [x] Muxes removed; receiver outputs direct to MCU — verified
-- [x] Per-channel A+ pull-up / A- 2.5V divider / no termination — verified
-- [x] Spare receiver channels (U12 ch3/4) inputs tied to defined level — verified
-- [x] Right-angle connector DS1037-09FNAKT74-0CC swapped in — verified
-- [x] 🔴 CONNECTOR BUG FIXED: J1→ENC1 … J5→ENC5, each on its own encoder (verified)
-- [x] 🟠 Bias changed 10k → 2.2k (pull-up + divider) — ref now ~2.0–2.35V, fail-safe margin +1.3…2.1V (verified)
-- [x] ⚪ TTL_SEL orphan removed (no longer dangling)
-- [ ] Confirm I2C (SCL/SDA) on DB9 pins 5/9 is intentional
-- [ ] SPI bus (PB12-15) WIP per user — not connected yet
+## Phase 3 — 5-chip-per-DB9 + index-Z restructure (OPEN — owed work)
+- [ ] Split the 3 shared receivers into 5 (one AM26LV32E at each DB9)
+- [ ] Wire index Z per axis. DB9 has only pin 6 free (pins 5/9 = I²C) →
+      decide: single-ended Z on pin 6, OR reclaim I²C pins for differential Z
+- [ ] Route the 5 Z inputs to free MCU GPIOs (PC13/14/15, PA2/3/4, PC8/9, PD2, PB4/5)
+- [ ] Tie spare channels of the new receivers to a defined level
+- [ ] Re-check JLCPCB stock covers 5× AM26LV32EIDR (≥1000 rule)
 
-## Phase 3 — Review
-- [ ] Re-export netlist and review encoder front-end after fixes
+## Phase 4 — Review
+- [ ] Re-export netlist and re-review encoder front-end after the restructure
+- [ ] Decide whether I²C (SCL/SDA on DB9 pins 5/9) stays given Z pin pressure

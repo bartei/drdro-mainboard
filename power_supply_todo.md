@@ -2,6 +2,12 @@
 
 > ⚠️ HISTORICAL working notes (design evolution). Many items are superseded/done.
 > See **STATUS.md** for the authoritative current state and open items.
+>
+> **Re-verified 2026-07-04** vs `Netlist_Schematic1_2026-07-04.net` (171/133, no
+> dangling nets): buck + FB divider (4.82–5.20V) + VCAP 2.2µF + RS485 GPIO-DE all
+> intact. **Designator note:** the current export has buck = **U2** (LMR33630),
+> inductor = **U3** (CYA0630-10µH), AMS1117 = U4, RS485 = U5 — the design docs'
+> older "U1"/"U6" references map to these.
 
 ## Phase 0 — Part selection
 - [x] Select buck controller (LMR33630ADDAR)
