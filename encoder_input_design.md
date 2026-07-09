@@ -5,18 +5,20 @@ Accept BOTH single-ended TTL and differential RS-422 encoder/scale inputs on
 the same DB9, with **no mux and no mode selection** — "just works" like the
 cheap Chinese DROs. Approved 2026-07-04.
 
-## AS-BUILT vs TARGET (status 2026-07-04)
-**As built** (netlist `Netlist_Schematic1_2026-07-04.net`, verified): the mux is
-gone and the biased-receiver technique is in — but on **3 shared quad receivers,
-A/B only**:
-- U7 = ENC1 (A/B) + ENC2 (A/B); U8 = ENC3 + ENC4; U9 = ENC5 + 1 spare channel
-- Per channel: 2.2k pull-up on A+, 2.2k divider on A− (~2.0–2.35V ref), no term
-- J1→ENC1 … J5→ENC5; receiver outputs direct to MCU (PA8/9, PA5/PB3, PA6/7,
-  PB6/7, PA0/1). **No index-Z wired.**
+## AS-BUILT vs TARGET (status 2026-07-09)
+**As built** (netlist `Netlist_PCB1_2026-07-09.net`, verified): the mux is gone,
+the biased-receiver technique is in, and the **per-DB9 split is DONE — 5 quad
+receivers, one AM26LV32EIDR at each connector, A/B only**:
+- U7 = J1/ENC1, U8 = J2/ENC2, U9 = J3/ENC3, U10 = J4/ENC4, U11 = J5/ENC5
+- Per line: 2.2k pull-up on A+/B+, 2.2k/2.2k divider on A−/B− (~2.5V ref), no term
+- Receivers enabled (pin4/G = 3V3); each chip's 2 spare channels have inputs tied
+  to a defined level, outputs left open
+- Receiver outputs direct to MCU (PA8/9, PA5/PB3, PA6/7, PB6/7, PA0/1 → TIM1–5).
+  **No index-Z wired yet.**
 
-**Target** (design of record, still to implement): **one AM26LV32E per DB9
-(5 chips)** with A/B/**Z** + spare — the "Modularity" section below. Outstanding
-work: add 2 receivers, split the wiring per-axis, route Z, re-check 5× stock.
+**Remaining vs design of record:** only **index-Z** is still to add (A/B/**Z** +
+spare per the "Modularity" section below). Reuse a spare receiver channel per chip
+for Z; DB9 pin 6 is the only free connector pin (see Z-routing constraint).
 
 **Z-routing constraint:** each DB9 (DS1037-09) has only **pin 6** free — pins
 5/9 carry the I²C SCL/SDA expansion bus. So a *differential* Z (Z+/Z−) has no

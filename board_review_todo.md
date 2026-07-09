@@ -5,8 +5,28 @@ Full audit incl. MCU pin-function check vs F411 AF table, reset, boot0, all I/O.
 
 > **Re-verified 2026-07-04** against the current export (**171 comp / 133 nets,
 > zero dangling nets**): findings below still hold; deltas ticked inline.
-> `STATUS.md` is the authoritative status. Biggest open item now: the encoder
-> 5-chip-per-DB9 + index-Z restructure (see `encoder_input_todo.md`).
+> `STATUS.md` is the authoritative status.
+
+## 🔁 Adversarial re-review — 2026-07-09 (`Netlist_PCB1_2026-07-09.net`, 177/133)
+Deterministic parse (both `.tel` and `.net`) + full net-by-net trace + datasheet
+pinout checks (STM32F411, W5500 vs WIZnet ref sch, AM26LV32E, TLP2309, SIT3088,
+ULN2003, LMR33630). **No critical/board-killer defects.** Zero dangling nets,
+**zero pins on >1 net (no shorts)**, all IC power/GND/EP pins resolved, all rails
+sourced. Part numbers confirmed (U2 LMR33630ADDAR, U5 SIT3088ETK, U7–U11
+AM26LV32EIDR, U12–17 TLP2309, U18 ULN2003ADR, U19 W5500, D1 SMDJ36CA, D2 SL10100).
+New / changed items (full list + detail in `STATUS.md` OPEN):
+- ✅ Encoder **5-chip-per-DB9 split now done** (U7–U11); SPI-NSS pull-up added (R72);
+  W5500 AVDD-ferrite / 1V2O 10nF / TOCAP 4.7µF / EXRES 12.4k all match WIZnet ref.
+- ✅ **CN1** — NON-ISSUE: it's the pluggable mating plug in the BOM, intentionally unwired.
+- ✅ **Optos OK as designed** — keep board-5V sinking inputs; domain change = pin swap if ever wanted.
+- ⬜ **Add ESD/surge on IN1–6**: SMAJ6.0CA (C466511) TVS→GND per line (+opt ~100Ω series R).
+- ✅ **Index-Z DESCOPED** (user 2026-07-09) — front-end final, A/B only.
+- ✅ **I²C pull-ups added** (R14/R74 4.7k→3V3). ESD footprints still optional.
+- ✅ **U5 RS485 part change** — SIT3088ETK OOS → SP3485EN-L/TR (C8963, SOIC-8, drop-in).
+- 🔧 **Replace D1 TVS** → SMCJ30A (C408374 / C135160), uni, 30V, same SMC footprint.
+- 🔍 CIN 1206 / COUT 22µF-0805 case + V-rating; per-IC 0.1µF (opto Vcc). (layout)
+- ✅ **Layout reviewed** (Gerber 2026-07-09): 4-layer, solid GND plane, buck EP
+  stitched, receivers at DB9s, W5500 decoupling tight. See STATUS.md.
 
 ## 🔴 Critical (blocks bring-up)
 - [x] MCU VDD pin 19 + VSS pin 18 — FIXED & verified: 18→GND, 19→3V3, all 5

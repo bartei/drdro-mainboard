@@ -1,7 +1,9 @@
 # STM32F411RET6 (LQFP-64) pin map — verified 2026-07-04
 
 Full pin-function audit against ST datasheet Table 8 (DocID026289). U6 = MCU.
-Re-verified against `Netlist_Schematic1_2026-07-04.net` (171 comp / 133 nets).
+Re-verified against `Netlist_PCB1_2026-07-09.net` (177 comp / 133 nets): all 53
+used MCU pins on valid functions, 11 GPIOs free (PC13/14/15, PA2/3/4, PC8/9, PD2,
+PB4/5), no shorts.
 
 ## Power — all 5 VDD/VSS pairs wired ✓ (was the critical finding, now FIXED)
 An earlier export left pins 18 (VSS) / 19 (VDD) unconnected; the current netlist
@@ -20,10 +22,11 @@ VBAT(1)→3V3 ✓, VCAP_1(30)→2.2µF (C22) ✓.
 | ENC5 | PA0/PA1 | 14/15 | TIM5 CH1/CH2 (AF2) |
 All 5 on distinct timers, valid CH1/CH2 pairs. FW: ENC5 must use TIM5 (AF2)
 not TIM2 (PA0/PA1 are also TIM2 CH1/CH2, but TIM2 = ENC2). Receiver outputs
-(AM26LV32E, 3.3V) go direct to MCU — safe for PA0 (TC/3.3V-only).
-As built the A/B pairs come off **3 shared quad receivers** (U7=ENC1/2,
-U8=ENC3/4, U9=ENC5). The pending 5-per-DB9 + **index-Z** restructure will add
-5 Z inputs — land them on the free GPIOs listed below (Z is a plain input).
+(AM26LV32EIDR, 3.3V) go direct to MCU — safe for PA0 (TC/3.3V-only).
+As built (2026-07-09) the A/B pairs come off **5 quad receivers, one per DB9**
+(U7=J1/ENC1 … U11=J5/ENC5). The still-pending **index-Z** work will add 5 Z
+inputs — land them on the free GPIOs listed below (Z is a plain input); a spare
+channel of each receiver is available to buffer a differential Z.
 
 ## Comms
 - USART1: PA15 TX (50, AF7), PA10 RX (43, AF7), PA11 DE (44, GPIO) ✓

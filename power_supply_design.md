@@ -113,6 +113,17 @@ RFBT > 100kΩ or specific transient-response tuning, not required here.
   catch diode (e.g. SS34) between SW and PGND, slightly lower efficiency,
   and only 28V abs-max input (less headroom than the 36V LMR33630).
 
+## RS485 transceiver — PART CHANGE (2026-07-09)
+**U5 SIT3088ETK (DFN-8) is out of stock at JLCPCB.** Replacement: **SP3485EN-L/TR
+(JLCPCB C8963, SOIC-8, 3.3V, 10Mbps)** — ~191k in stock, ~$0.30. Pin-identical to
+the SIT3088 (`1 RO, 2 RE̅, 3 DE, 4 DI, 5 GND, 6 A, 7 B, 8 VCC`), so it's an
+electrical drop-in: PA11 GPIO-DE, R9/R10 680Ω bias, R12 120Ω term all unchanged.
+Only action: change the U5 footprint DFN-8→SOIC-8 (SOIC-8 has no exposed pad, so
+the "EP→GND" layout item disappears). 10Mbps SP3485 matches the design's USART1
+ceiling. Alt if ever needed: MAX3485ESA+T (C18148, ~11k stock, ~5× the price).
+Re-confirm stock at order time (changes daily). Historical auto-direction analysis
+below is superseded by the GPIO-DE topology (see round 3/4 notes).
+
 ## RS485 auto-direction circuit — analysis + max speed (2026-07-04)
 
 **Topology (correct).** U5 = SIT3088ETK (14 Mbps half-duplex, VCC=3V3).
