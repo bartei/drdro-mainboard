@@ -1,0 +1,7 @@
+# EDA exports keep their original line endings (no CRLF<->LF normalization),
+# but stay diffable as text.
+*.net -text
+*.tel -text
+
+# Fabrication bundles are binary.
+*.zip binary
