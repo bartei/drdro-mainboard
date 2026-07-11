@@ -3,5 +3,6 @@
 *.net -text
 *.tel -text
 
-# Fabrication bundles are binary.
+# Fabrication bundles and EasyEDA project archives are binary.
 *.zip binary
+*.epro2 binary

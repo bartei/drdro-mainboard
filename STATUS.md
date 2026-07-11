@@ -1,8 +1,11 @@
 # drDRO mainboard — status & resume point
 
-**Last reviewed:** 2026-07-09 · netlist `Netlist_PCB1_2026-07-08.tel`
-(full adversarial re-review: **177 components / 133 nets, zero dangling nets,
-zero shorted pins, all rails/EP/power pins resolved**).
+**Last reviewed:** 2026-07-11 · **final pre-order review** — netlist
+`Netlist_Schematic1_2026-07-10.net` (**189 comp / 138 nets, zero dangling, all
+rails/EP resolved**) + Gerber `Gerber_PCB1_2026-07-11.zip` (4-layer,
+JLC04161H-7628 impedance stackup, 100 Ω diff pairs) + project `.epro2`. All three
+cross-check as the same current design. (The `.webp` previews inside the `.epro2`
+are stale cached thumbnails of an old V1.4/V1.5 mux-era layout — **ignore them**.)
 **This file is the authoritative current status.** Per-subsystem detail lives in
 the design docs (index at bottom). Most `*_todo.md` files are historical working
 notes that this file supersedes — **except `encoder_input_todo.md`, which is the
@@ -32,10 +35,18 @@ is still to be implemented — see OPEN and `encoder_input_todo.md`.
 | Reset + BOOT0 circuits | ✅ pull-up + steering diodes + buttons |
 | Encoder inputs (universal, no mux) | 🚧 **5-chip-per-DB9 done** (U7=J1…U11=J5, AM26LV32EIDR, 2.2k bias, no term, receivers→MCU on TIM1–5); spare recv ch tied off; **index-Z still NOT wired** (DB9 pin6 free, Z GPIOs unused) |
 | Motor outputs (3× STEP/DIR/ENA) | ✅ PC0–3/PC10–12→ULN2003→CN6/CN7, M3_DIR off PC13 |
-| RS-485 (GPIO-DE) | ✅ PA11 DE, 680Ω bias, 120Ω term — 10Mbps-ready. **Part change: SIT3088ETK (DFN-8) out of stock → U5 = SP3485EN-L/TR (C8963, SOIC-8), pin-identical drop-in; swap footprint DFN-8→SOIC-8** |
+| RS-485 (GPIO-DE) | ✅ PA11 DE, 680Ω bias, 120Ω term — 10Mbps-ready. **U5 = SP3485EN-L/TR (C8963, SOIC-8) now PLACED** in Gerber 2026-07-11 (pinout verified: RO→UART_RX, RE̅+DE→UART_DE, DI→UART_TX, A/B, VCC=3V3). SOIC-8 has no EP → old "EP→GND" item moot |
 | W5500 Ethernet | ✅ SPI/bias/PMODE/magnetics/LEDs/crystal all correct |
+| Analog outputs (2× 0–10 V, VFD ref) | ✅ **in netlist + reviewed 2026-07-10** — U20 GP8403 dual I²C DAC, VCC=VIN(24 V), EP→GND, on shared I²C1 (PB8/PB9, addr 0x58); VOUT0/1→AO0/AO1 (1 µF + SMAJ12A + 47 Ω)→CN9; 4–20 mA dropped. See `analog_output_design.md` |
 
 ## OPEN — before fab (schematic/wiring)
+- [x] 🆕 **2× 0–10 V analog outputs (VFD speed ref) — DONE in netlist + reviewed
+      2026-07-10.** U20 **GP8403** dual 12-bit I²C DAC (**C3152007**), VCC=VIN(24 V),
+      EP→GND, on the **shared I²C1** bus (PB8/PB9, **addr 0x58**), pull-ups R14/R74
+      reused. VOUT0→AO0 / VOUT1→AO1, each 1 µF + SMAJ12A TVS (C113957) + 47 Ω → CN9
+      (AO0/AO1/GND/GND). 0–10 V only — 4–20 mA dropped. Caps 1 µF per official
+      datasheet. Detail: `analog_output_design.md` / `analog_output_todo.md`.
+      Open (optional): local 0.1 µF + RC on VCC (24 V-bus noise); reserve I²C 0x58.
 - [x] **Encoder split → one AM26LV32E per DB9 (5 chips).** DONE in
       `Netlist_PCB1_2026-07-09.net`: U7=J1, U8=J2, U9=J3, U10=J4, U11=J5, each
       A/B, per-line 2.2k pull-up + 2.2k/2.2k bias, receivers enabled (pin4=3V3),
@@ -64,6 +75,27 @@ is still to be implemented — see OPEN and `encoder_input_todo.md`.
       WIZnet ref Fig 3 (usually not needed — internal feedback exists).
 - [ ] **Connector grouping** (optional): motor 2 is split across CN6 (M2_STEP)
       and CN7 (M2_DIR). Regroup per-motor if desired. CN6/CN7 are signal-only.
+
+## PCB LAYOUT — FINAL pre-order review 2026-07-11 (`Gerber_PCB1_2026-07-11.zip`)
+Reviewed from Gerber + drill + flying-probe + `.epru` (no raw-Gerber renderer here;
+the `.epro2` `.webp` previews are stale — old mux-era layout, ignored).
+- [x] **Layer set complete** for fab: 2 outer + **2 inner copper (Inner1/Inner2)**,
+      both masks/silks, **top paste only → all SMD top-side** (no bottom SMD — confirm
+      intended), board-outline, 3 drill files, flying-probe. Board **178.05×75.69 mm**.
+- [x] **Impedance stackup SET = `JLC04161H-7628`** (JLCPCB 4-layer, 1.6 mm; L1→L2
+      = 0.2104 mm 7628 prepreg). **Ethernet diff pairs present at W=0.2 mm** (8 mil) →
+      100 Ω differential; TXP/TXN & RXP/RXN run ~10–12 mm U19→magjack J6 on top. GOOD.
+- [x] **U20 GP8403 analog + CN9** placed top; EP→GND; nets per netlist. GOOD.
+- [x] **U5 SP3485EN SOIC-8** placed (RS485), pinout verified. GOOD.
+- [x] **Fab limits OK for JLCPCB**: min via drill **0.305 mm** (≥0.3 std), min trace
+      **0.203 mm / 8 mil** (≫3.5 mil min), 1033 vias, standard hole sizes. 2× 3.3 mm
+      NPTH mounting holes (a 178 mm board often wants 4 — confirm mechanical intent).
+- [ ] 🛒 **ORDER-TIME CHECKLIST (JLCPCB):** (1) **4-layer**, 1.6 mm; (2) **Impedance
+      Control = YES**, stackup **JLC04161H-7628**; (3) confirm Inner1(L2) is solid GND,
+      unbroken under the U19→J6 pairs; (4) pairs stay top-layer, intra-pair length
+      matched (raw pad offset ~2.3–2.7 mm — fine for 100BASE-TX). Project is
+      mis-named "…2 Layer" and silk says V1.5 — **cosmetic only, it IS 4-layer**; the
+      Gerber has 4 copper layers so JLCPCB will bill 4-layer regardless.
 
 ## PCB LAYOUT — reviewed 2026-07-09 (`Gerber_PCB1_2026-07-09.zip`)
 4-layer, 178.3×76.0mm. **Inner1 = solid GND plane (unbroken); Inner2 = full plane
