@@ -93,9 +93,13 @@ the `.epro2` `.webp` previews are stale — old mux-era layout, ignored).
 - [ ] 🛒 **ORDER-TIME CHECKLIST (JLCPCB):** (1) **4-layer**, 1.6 mm; (2) **Impedance
       Control = YES**, stackup **JLC04161H-7628**; (3) confirm Inner1(L2) is solid GND,
       unbroken under the U19→J6 pairs; (4) pairs stay top-layer, intra-pair length
-      matched (raw pad offset ~2.3–2.7 mm — fine for 100BASE-TX). Project is
-      mis-named "…2 Layer" and silk says V1.5 — **cosmetic only, it IS 4-layer**; the
-      Gerber has 4 copper layers so JLCPCB will bill 4-layer regardless.
+      matched (raw pad offset ~2.3–2.7 mm — fine for 100BASE-TX). Project renamed to
+      **"V1.5 Final"** (matches silk); still confirm 4-layer at order.
+- [x] **Final routing pass re-verified 2026-07-11** (Gerber 01:50, `.epro2` V1.5
+      Final): flying-probe connectivity unchanged vs the reviewed design — all parts
+      present, no stray muxes, diff pairs intact, stackup + 0.2 mm pairs retained,
+      fab limits unchanged. Copper edit was routing polish only. Netlist connectivity
+      unaffected (`Netlist_Schematic1_2026-07-10.net` still current for wiring).
 
 ## PCB LAYOUT — reviewed 2026-07-09 (`Gerber_PCB1_2026-07-09.zip`)
 4-layer, 178.3×76.0mm. **Inner1 = solid GND plane (unbroken); Inner2 = full plane
