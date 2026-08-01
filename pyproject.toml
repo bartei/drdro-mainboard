@@ -19,6 +19,13 @@ tag_format = "v{version}"
 # old board's drdro-app.bin so an updater can never cross-flash the two boards.
 build_command = "firmware/tools/build-release.sh"
 
+[tool.semantic_release.changelog]
+# Regenerate the whole CHANGELOG.md from history on every release. The psr-10
+# default ("update") silently skips the file when its insertion-flag comment is
+# missing — which is exactly what happened on v1.0.0: no changelog commit was
+# pushed back. Init mode needs no flag and retroactively covers past releases.
+mode = "init"
+
 [tool.semantic_release.branches.main]
 match = "(master|main)"
 prerelease = false
