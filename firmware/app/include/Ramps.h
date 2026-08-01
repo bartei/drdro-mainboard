@@ -132,6 +132,8 @@ typedef struct {
   aoutData_t aout;
   netData_t net;
   diagData_t diag;
+  uint16_t scaleCount;     /* = SCALES_COUNT (RampsStart) — RO `scales.count`, lets
+                              the host size its UI without hardcoding the board */
 } rampsSharedData_t;
 
 typedef struct {

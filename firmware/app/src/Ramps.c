@@ -64,6 +64,7 @@ void RampsStart(rampsHandler_t *rampsData) {
     rampsData->shared.scales[i].dirInvert = 0;
   }
   rampsData->shared.din.debounceMs = 5;            // matches settings_defaults()
+  rampsData->shared.scaleCount = SCALES_COUNT;     // board capability, RO in the registry
 
   // Network compiled defaults (all must match settings_defaults()): DHCP on,
   // CLI port 5555, /24 static mask placeholder. Without these a factory-blank

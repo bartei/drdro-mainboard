@@ -149,6 +149,7 @@ typedef struct {
 
 #define OFF(f) offsetof(rampsSharedData_t, f)
 static const var_entry_t kVars[] = {
+  { "scales.count",  OFF(scaleCount),                 VT_U16, 1, 0, V_RO },
   { "scales.pos",    OFF(scales[0].position),         VT_I32, SCALES_COUNT, sizeof(input_t), 0    },
   { "scales.speed",  OFF(scales[0].speed),            VT_I32, SCALES_COUNT, sizeof(input_t), V_RO },
   { "scales.num",    OFF(scales[0].syncRatioNum),     VT_I32, SCALES_COUNT, sizeof(input_t), 0    },

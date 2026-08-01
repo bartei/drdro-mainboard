@@ -494,6 +494,17 @@ static void test_fw_abort(void) {
   TEST_ASSERT_EQUAL_INT(FW_IDLE, fwState);
 }
 
+/* ---- board capability report ------------------------------------------------ */
+static void test_scales_count_reports_board_capability(void) {
+  shared.scaleCount = SCALES_COUNT;          /* set by RampsStart on hardware */
+  run("get scales.count");
+  TEST_ASSERT_NOT_NULL(strstr(cap, "scales.count=5"));
+  capReset();
+  run("set scales.count 4");
+  TEST_ASSERT_NOT_NULL(strstr(cap, "error=read-only"));
+  TEST_ASSERT_EQUAL_UINT16(SCALES_COUNT, shared.scaleCount);
+}
+
 /* ---- diag stats ------------------------------------------------------------ */
 static void test_diag_uptime_readonly(void) {
   /* 3 days, 4 h, 5 min, 42 s = 3*86400 + 4*3600 + 5*60 + 42 */
@@ -676,6 +687,7 @@ int main(void) {
   RUN_TEST(test_fw_commit_ok);
   RUN_TEST(test_fw_commit_not_ready);
   RUN_TEST(test_fw_abort);
+  RUN_TEST(test_scales_count_reports_board_capability);
   RUN_TEST(test_diag_uptime_readonly);
   RUN_TEST(test_diag_uptime_zero);
   RUN_TEST(test_diag_cycmax_resettable);
