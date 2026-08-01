@@ -28,6 +28,8 @@ void    EnterBootloader(void)                    { }   /* HW jump; stubbed for h
 void MockUartCapture(const uint8_t *data, uint16_t size);
 void Rs485Send(const uint8_t *data, uint16_t len) { MockUartCapture(data, len); }
 void Rs485TxInit(void) { }
+void Rs485RxStart(void) { }
+uint16_t Rs485RxDrain(uint8_t *out, uint16_t max) { (void)out; (void)max; return 0; }
 
 /* ---- Scales stub (encoder filter reprogram; captured for assertions) ----- */
 static TIM_HandleTypeDef *filtHandle; static uint16_t filtValue; static int filtCalls;
@@ -505,6 +507,16 @@ static void test_scales_count_reports_board_capability(void) {
   TEST_ASSERT_EQUAL_UINT16(SCALES_COUNT, shared.scaleCount);
 }
 
+/* ---- RS-485 baud setting ---------------------------------------------------- */
+static void test_com_baud_bounds(void) {
+  run("set com.baud 1000000");
+  TEST_ASSERT_NULL(strstr(cap, "error="));
+  TEST_ASSERT_EQUAL_UINT32(1000000, shared.comBaud);
+  capReset();
+  run("set com.baud 3000000");               /* CH340/SP3485 envelope: cap at 2M */
+  TEST_ASSERT_NOT_NULL(strstr(cap, "error=value out of range"));
+}
+
 /* ---- diag stats ------------------------------------------------------------ */
 static void test_diag_uptime_readonly(void) {
   /* 3 days, 4 h, 5 min, 42 s = 3*86400 + 4*3600 + 5*60 + 42 */
@@ -604,6 +616,7 @@ static void test_settings_defaults(void) {
   TEST_ASSERT_EQUAL_UINT16(0, s.aout_raw[0]);
   TEST_ASSERT_EQUAL_UINT8(255, s.net_mask[0]);
   TEST_ASSERT_EQUAL_UINT8(0, s.net_mask[3]);
+  TEST_ASSERT_EQUAL_UINT32(115200, s.com_baud);
 }
 static void test_settings_pick_newest_seq(void) {
   settings_t a, b, out;
@@ -687,6 +700,7 @@ int main(void) {
   RUN_TEST(test_fw_commit_ok);
   RUN_TEST(test_fw_commit_not_ready);
   RUN_TEST(test_fw_abort);
+  RUN_TEST(test_com_baud_bounds);
   RUN_TEST(test_scales_count_reports_board_capability);
   RUN_TEST(test_diag_uptime_readonly);
   RUN_TEST(test_diag_uptime_zero);

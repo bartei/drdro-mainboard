@@ -93,6 +93,9 @@ typedef struct {
   uint8_t  net_ip[4];                       /* static address   (when net_dhcp = 0) */
   uint8_t  net_mask[4];                     /* static netmask */
   uint8_t  net_gw[4];                       /* static gateway */
+  uint32_t com_baud;                        /* RS-485 baud, applied at next boot
+                                               (default 115200; bootloader stays
+                                               fixed at 115200 regardless) */
 } settings_t;
 
 /* Smallest image we'll accept: must at least reach through the fixed core. Bounds the
@@ -152,6 +155,7 @@ static inline void settings_defaults(settings_t *s) {
   s->net_port = 5555;
   for (int i = 0; i < 4; i++) { s->net_ip[i] = 0; s->net_gw[i] = 0; }
   s->net_mask[0] = 255; s->net_mask[1] = 255; s->net_mask[2] = 255; s->net_mask[3] = 0;
+  s->com_baud = 115200;
   settings_seal(s);
 }
 

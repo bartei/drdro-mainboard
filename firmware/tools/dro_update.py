@@ -101,12 +101,12 @@ def send_block(ser, block, retries=10, ack_timeout=2.0):
     return False
 
 
-def ymodem_send(ser, path):
+def ymodem_send(ser, path, handshake_done=False):
     data = open(path, "rb").read()
     name = os.path.basename(path).encode()
     size = len(data)
     print(f"  YMODEM: {name.decode()} ({size} bytes)")
-    if not wait_for(ser, CRC_C, 30.0):
+    if not handshake_done and not wait_for(ser, CRC_C, 30.0):
         sys.exit("no YMODEM handshake ('C') — did `flash <bank>` start?")
     header = (name + b"\x00" + str(size).encode() + b"\x00").ljust(128, b"\x00")
     if not send_block(ser, make_block(0, header)):
@@ -180,10 +180,13 @@ def cli(ser, cmd, timeout=3.0, retries=3):
     return resp
 
 
-def enter_bootloader(ser):
+def enter_bootloader(ser, bootloader_baud=115200):
     print("requesting update (-> bootloader)...")
     ser.reset_input_buffer()
-    ser.write(b"update\r"); ser.flush()
+    ser.write(b"update\r"); ser.flush()   # flush() blocks until the bytes are on the wire
+    ser.baudrate = bootloader_baud         # switch NOW: the one-shot greeting lands ~10 ms
+                                           # after the command. Don't flush input — the
+                                           # greeting matcher skips the mis-baud ack bytes.
     # The app acks `update=ready` then jumps; the bootloader greets `bootloader=ready`.
     # Wait until we've seen "bootloader" AND the frame's terminating blank line (\n\n):
     # the substring match tolerates a glitched first greeting byte (RS485 turnaround),
@@ -307,7 +310,8 @@ def main():
     ap.add_argument("binary", help="app firmware .bin (linked for the Exec region)")
     ap.add_argument("--net", action="store_true", help="update over Ethernet via the app's fw.* commands")
     ap.add_argument("--bank", type=int, choices=(0, 1), help="target bank (default: the inactive one)")
-    ap.add_argument("--baud", type=int, default=115200)
+    ap.add_argument("--baud", type=int, default=115200,
+                    help="APP-phase baud (com.baud setting); the bootloader phase is always 115200")
     ap.add_argument("--in-bootloader", action="store_true", help="board is already in the bootloader CLI (serial only)")
     ap.add_argument("--no-boot", action="store_true", help="flash + select the bank but don't boot")
     args = ap.parse_args()
@@ -322,7 +326,9 @@ def main():
     serial = _need_pyserial()
     with serial.Serial(args.port, args.baud, timeout=0.2) as ser:
         if not args.in_bootloader:
-            enter_bootloader(ser)
+            enter_bootloader(ser, bootloader_baud=115200)
+        else:
+            ser.baudrate = 115200          # bootloader always talks 115200
 
         bank = args.bank
         if bank is None:
@@ -332,9 +338,21 @@ def main():
             print(f"active bank is {active} -> flashing inactive bank {bank}")
 
         print(f"flashing bank {bank} ...")
-        ser.reset_input_buffer()
-        ser.write(f"flash {bank}\r".encode()); ser.flush()
-        ymodem_send(ser, args.binary)
+        # The first byte after the device's last response can be clipped by the
+        # RS-485/adapter turnaround (same glitch cli() retries for) — and a
+        # mangled `flash` command means no YMODEM 'C' handshake ever comes.
+        # Retry the command until the handshake appears; safe, because before
+        # the first 'C' no transfer state exists on either side.
+        for attempt in range(3):
+            time.sleep(0.15)
+            ser.reset_input_buffer()
+            ser.write(f"flash {bank}\r".encode()); ser.flush()
+            if wait_for(ser, CRC_C, 5.0):
+                break
+            print(f"  no handshake (attempt {attempt + 1}) — retrying `flash {bank}`")
+        else:
+            sys.exit("no YMODEM handshake ('C') after 3 attempts.")
+        ymodem_send(ser, args.binary, handshake_done=True)
         res = read_response(ser, 5.0)
         if "error" in res or "flash" not in res:
             sys.exit(f"flash failed: {res}")
@@ -349,6 +367,7 @@ def main():
         ser.write(b"boot\r"); ser.flush()      # copies active bank -> Exec, jumps (no framed reply)
         print("booting new image (copying bank -> Exec) ...")
         time.sleep(2.0)
+        ser.baudrate = args.baud                # the app answers at its configured baud
         # The very first command after the jump can lose its leading byte to the RS485
         # turnaround as the app's USART comes up, so retry the version read a few times.
         for _ in range(6):

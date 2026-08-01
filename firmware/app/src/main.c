@@ -44,6 +44,13 @@ void EnterBootloader(void) {
    * across the jump it would otherwise keep running with UIF asserted, waiting
    * to ambush the next image the moment it unmasks the shared vector. */
   TIM9->CR1 = 0U; TIM9->DIER = 0U; TIM9->SR = 0U;
+  /* Same class of hazard, second offender: the RS-485 RX runs on circular DMA.
+   * Left enabled across the jump, the stream keeps draining USART1->DR into
+   * this (dead) image's ring buffer — the bootloader's polled RX then never
+   * sees RXNE and the update CLI is deaf. Tear it down at the peripheral. */
+  USART1->CR3 &= ~USART_CR3_DMAR;
+  DMA2_Stream2->CR &= ~DMA_SxCR_EN;
+  while (DMA2_Stream2->CR & DMA_SxCR_EN) { }
   for (int i = 0; i < 8; i++) { NVIC->ICER[i] = 0xFFFFFFFFU; NVIC->ICPR[i] = 0xFFFFFFFFU; }
   uint32_t sp = *(volatile uint32_t *)BL_BASE_ADDR;
   uint32_t pc = *(volatile uint32_t *)(BL_BASE_ADDR + 4U);
@@ -158,6 +165,21 @@ int main(void)
    * reprogram them with the persisted per-scale value. */
   for (int i = 0; i < SCALES_COUNT; i++)
     setScaleFilter(RampsData.shared.scales[i].timerHandle, RampsData.shared.scales[i].filterValue);
+
+  /* Persisted RS-485 baud (com.baud): sanitize, then re-init USART1 if it
+   * differs from the 115200 default the banner just went out at. Safe here:
+   * protocol RX isn't armed until the scheduler starts. The BOOTLOADER always
+   * talks 115200 — recovery must not depend on a setting — so update tooling
+   * switches rates between the app and bootloader phases. */
+  if (RampsData.shared.comBaud < 9600U || RampsData.shared.comBaud > 2000000U)
+    RampsData.shared.comBaud = 115200U;
+  if (RampsData.shared.comBaud != huart1.Init.BaudRate) {
+    huart1.Init.BaudRate = RampsData.shared.comBaud;
+    if (HAL_UART_Init(&huart1) != HAL_OK) {
+      huart1.Init.BaudRate = 115200U;          /* never brick the console */
+      (void)HAL_UART_Init(&huart1);
+    }
+  }
 
   /* Digital inputs: pull-ups + debounce poll task. The task ALSO brings up the
    * GP8403 analog outputs — deliberately NOT done here: from the first

@@ -134,6 +134,10 @@ typedef struct {
   diagData_t diag;
   uint16_t scaleCount;     /* = SCALES_COUNT (RampsStart) — RO `scales.count`, lets
                               the host size its UI without hardcoding the board */
+  uint16_t pad1;
+  uint32_t comBaud;        /* RS-485 baud (`com.baud`, persisted, applied at next
+                              boot). The BOOTLOADER always runs 115200 — recovery
+                              must never depend on a setting. */
 } rampsSharedData_t;
 
 typedef struct {

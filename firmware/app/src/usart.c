@@ -5,9 +5,17 @@
 #include <string.h>
 
 UART_HandleTypeDef huart1;
+DMA_HandleTypeDef  hdma_usart1_rx;
 
 /* Signalled by HAL_UART_TxCpltCallback (TC: last stop bit on the wire). */
 static osSemaphoreId_t sTxDone = NULL;
+
+/* Circular RX ring, drained by the protocol task (~1 ms cadence). DMA moves
+ * every received byte here with ZERO per-byte CPU — the byte-interrupt scheme
+ * it replaces needed ~5-10 us of HAL+RTOS work per byte and collapsed above
+ * ~500 kbaud once the 100 kHz motion ISR (52% duty) competed for the core. */
+static uint8_t  sRxRing[RS485_RX_RING];
+static uint16_t sRxTail = 0;   /* next unread index (task side) */
 
 /* USART1 @115200 8N1 — the RS-485 host link (U5 = SP3485EN).
  * USART1 is on APB2 (100 MHz), so the baud divisor is exact at 115200 given the
@@ -58,8 +66,28 @@ void HAL_UART_MspInit(UART_HandleTypeDef *uartHandle)
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
     HAL_GPIO_Init(RS485_DE_GPIO_Port, &GPIO_InitStruct);
 
-    /* Byte-IT RX (Protocol.c) + TC-driven DE release (Rs485Send) both need the
-     * USART1 interrupt. Priority 15: the ISR calls RTOS APIs (>= 5 rule). */
+    /* RX by circular DMA: USART1_RX = DMA2 Stream 2, Channel 4. Byte-wide,
+     * peripheral-to-memory, circular over sRxRing; the protocol task polls the
+     * write position (NDTR), so the stream needs NO interrupts at all. */
+    __HAL_RCC_DMA2_CLK_ENABLE();
+    hdma_usart1_rx.Instance                 = DMA2_Stream2;
+    hdma_usart1_rx.Init.Channel             = DMA_CHANNEL_4;
+    hdma_usart1_rx.Init.Direction           = DMA_PERIPH_TO_MEMORY;
+    hdma_usart1_rx.Init.PeriphInc           = DMA_PINC_DISABLE;
+    hdma_usart1_rx.Init.MemInc              = DMA_MINC_ENABLE;
+    hdma_usart1_rx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
+    hdma_usart1_rx.Init.MemDataAlignment    = DMA_MDATAALIGN_BYTE;
+    hdma_usart1_rx.Init.Mode                = DMA_CIRCULAR;
+    hdma_usart1_rx.Init.Priority            = DMA_PRIORITY_HIGH;
+    hdma_usart1_rx.Init.FIFOMode            = DMA_FIFOMODE_DISABLE;
+    if (HAL_DMA_Init(&hdma_usart1_rx) != HAL_OK)
+    {
+      Error_Handler();
+    }
+    __HAL_LINKDMA(uartHandle, hdmarx, hdma_usart1_rx);
+
+    /* USART1 interrupt: TC-driven DE release (Rs485Send) + error recovery.
+     * Priority 15: the ISR calls RTOS APIs (>= 5 rule). */
     HAL_NVIC_SetPriority(USART1_IRQn, 15, 0);
     HAL_NVIC_EnableIRQ(USART1_IRQn);
   }
@@ -114,6 +142,42 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 void Rs485TxInit(void)
 {
   if (sTxDone == NULL) sTxDone = osSemaphoreNew(1U, 0U, NULL);
+}
+
+/* Start (or restart) circular-DMA reception into the ring. */
+void Rs485RxStart(void)
+{
+  sRxTail = 0;
+  HAL_UART_DMAStop(&huart1);
+  HAL_UART_Receive_DMA(&huart1, sRxRing, RS485_RX_RING);
+}
+
+/* Drain bytes the DMA has written since the last call. Returns the number of
+ * bytes copied into out[] (0 if none). Task context. */
+uint16_t Rs485RxDrain(uint8_t *out, uint16_t max)
+{
+  uint16_t head = (uint16_t)(RS485_RX_RING - __HAL_DMA_GET_COUNTER(huart1.hdmarx));
+  uint16_t n = 0;
+  while (sRxTail != head && n < max) {
+    out[n++] = sRxRing[sRxTail];
+    sRxTail = (uint16_t)((sRxTail + 1U) % RS485_RX_RING);
+  }
+  return n;
+}
+
+/* RX line errors (overrun/noise/framing): with circular DMA an overrun cannot
+ * normally happen (DMA drains RDR autonomously), but electrical noise can still
+ * raise NE/FE and the HAL then ABORTS the DMA reception. Clear and restart so
+ * the console can never die. */
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+  if (huart->Instance != RS485_UART) return;
+  __HAL_UART_CLEAR_OREFLAG(huart);
+  __HAL_UART_CLEAR_NEFLAG(huart);
+  __HAL_UART_CLEAR_FEFLAG(huart);
+  huart->ErrorCode = HAL_UART_ERROR_NONE;
+  sRxTail = 0;
+  HAL_UART_Receive_DMA(huart, sRxRing, RS485_RX_RING);
 }
 
 /**

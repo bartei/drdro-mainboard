@@ -37,6 +37,7 @@ static void shared_to_settings(const rampsSharedData_t *sh, settings_t *s) {
     s->net_mask[i] = sh->net.cfgMask[i];
     s->net_gw[i]   = sh->net.cfgGw[i];
   }
+  s->com_baud = sh->comBaud;
 }
 
 static void settings_to_shared(const settings_t *s, rampsSharedData_t *sh) {
@@ -61,6 +62,7 @@ static void settings_to_shared(const settings_t *s, rampsSharedData_t *sh) {
     sh->net.cfgMask[i] = s->net_mask[i];
     sh->net.cfgGw[i]   = s->net_gw[i];
   }
+  sh->comBaud = s->com_baud;
 }
 
 /* Erase one settings slot's sector and program the struct there (word-verified). */

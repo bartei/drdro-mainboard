@@ -41,8 +41,6 @@ static rampsSharedData_t  *sShared = NULL;
 static osMutexId_t sProtoMutex = NULL;
 
 /* ---- RX task + activity ------------------------------------------------- */
-static uint8_t           sRxByte;
-static volatile uint8_t  sTxActive = 0;   /* drop self-echo while transmitting   */
 static volatile uint32_t sRxLines  = 0;   /* processed-command counter           */
 static osThreadId_t      sTask = NULL;
 static const osThreadAttr_t kProtoTaskAttr = {
@@ -106,15 +104,39 @@ static void respEnd(proto_io_t *io) {   /* crc=HH then the terminating empty lin
  * Kept from the baseline for host-timing compatibility (the DE pin actually
  * makes the turnaround explicit on this board). */
 #define PROTOCOL_TX_SETTLE_MS 2   /* verified clean on the baseline bench */
+/* Responses are accumulated and sent as ONE gap-free burst (single DE assert):
+ * sending fragment-by-fragment put ~30 DE toggles + inter-byte gaps in every
+ * response, and at 1 Mbaud the byte at each boundary was occasionally lost
+ * (seen as CRC-bad frames on the bench). Buffer sized for the largest response
+ * (`help` ~700 B); anything bigger flushes mid-response, which just costs one
+ * extra turnaround. */
+static uint8_t  sUartTxBuf[768];
+static uint16_t sUartTxLen = 0;
+static void uartFlush(void) {
+  if (sUartTxLen) { Rs485Send(sUartTxBuf, sUartTxLen); sUartTxLen = 0; }
+}
 static void uartIoWrite(proto_io_t *io, const char *s, uint16_t n) {
   (void)io;
-  Rs485Send((const uint8_t *)s, n);
+  while (n) {
+    uint16_t room = (uint16_t)(sizeof(sUartTxBuf) - sUartTxLen);
+    if (room == 0U) { uartFlush(); continue; }
+    uint16_t chunk = (n < room) ? n : room;
+    memcpy(sUartTxBuf + sUartTxLen, s, chunk);
+    sUartTxLen += chunk;
+    s += chunk;
+    n -= chunk;
+  }
 }
 static void uartIoBegin(proto_io_t *io) {
   (void)io;
+  sUartTxLen = 0;
   osDelay(PROTOCOL_TX_SETTLE_MS);
 }
-static proto_io_t sUartIo = { uartIoWrite, uartIoBegin, NULL, NULL, 0, {0} };
+static void uartIoEnd(proto_io_t *io) {
+  (void)io;
+  uartFlush();
+}
+static proto_io_t sUartIo = { uartIoWrite, uartIoBegin, uartIoEnd, NULL, 0, {0} };
 
 /* ---- command handlers ---------------------------------------------------- */
 typedef void (*cmd_fn)(proto_io_t *io, int argc, char **argv);
@@ -180,6 +202,7 @@ static const var_entry_t kVars[] = {
   { "net.cfg.ip",    OFF(net.cfgIp[0]),               VT_IP4, 1, 0, 0    },
   { "net.cfg.mask",  OFF(net.cfgMask[0]),             VT_IP4, 1, 0, 0    },
   { "net.cfg.gw",    OFF(net.cfgGw[0]),               VT_IP4, 1, 0, 0    },
+  { "com.baud",      OFF(comBaud),                    VT_U32, 1, 0, 0, 2000000 },  /* next boot; BL stays 115200 */
   { "diag.cycles",   OFF(fastData.cycles),            VT_U32, 1, 0, V_RO },
   { "diag.interval", OFF(fastData.executionInterval), VT_U32, 1, 0, V_RO },
   { "diag.cycmax",   OFF(diag.cyclesMax),             VT_U32, 1, 0, 0    },  /* write 0 to re-arm */
@@ -551,9 +574,7 @@ uint8_t ProtocolLineReady(void) { return sReadyFlag; }
 void ProtocolService(void) {
   if (!sReadyFlag) return;
   sReadyFlag = 0;
-  sTxActive = 1;                       /* ignore self-echo during the response   */
   proto_action_t action = ProtocolProcessLine(&sUartIo, sReady);
-  sTxActive = 0;
 
   if (action == PROTO_ACT_HANDOFF) {   /* ack is on the wire (TX blocks until TC); */
     osDelay(5);                        /* let the line settle, then hand off.      */
@@ -563,29 +584,31 @@ void ProtocolService(void) {
 
 uint32_t ProtocolActivity(void) { return sRxLines; }
 
-/* RX interrupt: one byte at a time → line buffer; wake the task on a full line. */
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
-  if (huart != sUart) return;
-  uint8_t b = sRxByte;
-  HAL_UART_Receive_IT(sUart, &sRxByte, 1);    /* re-arm immediately               */
-  if (sTxActive) return;                       /* drop our own transmitted echo    */
-  ProtocolFeedByte(b);
-  if (sReadyFlag) osThreadFlagsSet(sTask, 0x01U);
-}
-
+/* RS-485 service task: drain the circular-DMA RX ring every millisecond and
+ * feed the line assembler. DMA replaced the per-byte RX interrupt, which cost
+ * ~5-10 us of HAL+RTOS work per byte and collapsed above ~500 kbaud alongside
+ * the 100 kHz motion ISR (52% duty). Self-echo needs no guard on this board:
+ * DE and /RE are tied, so our own transmissions never reach the receiver. */
 static void protocolTask(void *arg) {
   (void)arg;
-  HAL_UART_Receive_IT(sUart, &sRxByte, 1);
+  uint8_t chunk[64];
+  Rs485RxStart();
   for (;;) {
-    osThreadFlagsWait(0x01U, osFlagsWaitAny, osWaitForever);
-    ProtocolService();
+    osDelay(1);
+    uint16_t n;
+    while ((n = Rs485RxDrain(chunk, (uint16_t)sizeof(chunk))) != 0U) {
+      for (uint16_t i = 0; i < n; i++) {
+        ProtocolFeedByte(chunk[i]);
+        if (sReadyFlag) ProtocolService();
+      }
+    }
   }
 }
 
 void ProtocolStart(UART_HandleTypeDef *huart, rampsSharedData_t *shared) {
   sUart = huart;
   sShared = shared;
-  sLen = 0; sPendEOL = 0; sReadyFlag = 0; sTxActive = 0; sRxLines = 0;
+  sLen = 0; sPendEOL = 0; sReadyFlag = 0; sRxLines = 0;
   sLine[0] = '\0'; sReady[0] = '\0'; sUartIo.last[0] = '\0';
   Rs485TxInit();
   sProtoMutex = osMutexNew(NULL);

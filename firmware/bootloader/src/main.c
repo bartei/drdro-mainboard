@@ -103,6 +103,20 @@ void HAL_UART_MspInit(UART_HandleTypeDef *h) {
 }
 
 static void usart1_init(void) {
+  /* Defense against the previous life: if the app was using RX DMA and jumped
+   * here without tearing it down (older images in the banks certainly do), the
+   * still-circular DMA stream steals every received byte before polled RX can
+   * see RXNE — a deaf update CLI. Kill any USART1-RX DMA unconditionally; the
+   * register writes are harmless no-ops when the clocks are off or the stream
+   * is idle. */
+  if (RCC->AHB1ENR & RCC_AHB1ENR_DMA2EN) {
+    DMA2_Stream2->CR &= ~DMA_SxCR_EN;
+    while (DMA2_Stream2->CR & DMA_SxCR_EN) { }
+    DMA2_Stream5->CR &= ~DMA_SxCR_EN;              /* the other USART1_RX-capable stream */
+    while (DMA2_Stream5->CR & DMA_SxCR_EN) { }
+  }
+  USART1->CR3 &= ~(USART_CR3_DMAR | USART_CR3_DMAT);
+
   huart1.Instance = USART1;
   huart1.Init.BaudRate = 115200;
   huart1.Init.WordLength = UART_WORDLENGTH_8B;
