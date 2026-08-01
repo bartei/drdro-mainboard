@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v1.1.1 (2026-08-01)
+
+### Bug Fixes
+
+- **boot**: Harden the bootloader-jump path found by RS-485 update testing
+  ([`bcfb676`](https://github.com/bartei/drdro-mainboard/commit/bcfb676559fb0302801f65e07faffac5d21c8b49))
+
+
 ## v1.1.0 (2026-08-01)
 
 ### Bug Fixes
