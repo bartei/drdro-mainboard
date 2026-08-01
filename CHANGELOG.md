@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v1.2.0 (2026-08-01)
+
+### Features
+
+- **protocol**: Configurable RS-485 baud up to 1 Mbaud (com.baud)
+  ([`a6545db`](https://github.com/bartei/drdro-mainboard/commit/a6545dbf303b7801559bfebf5b0e0ef854b683f7))
+
+
 ## v1.1.1 (2026-08-01)
 
 ### Bug Fixes
