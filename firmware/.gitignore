@@ -1,0 +1,9 @@
+# PlatformIO build output & downloaded dependencies
+.pio/
+
+# Reference project copy (temporary, host-provided) — never commit
+reference/
+
+# Build artifacts
+factory.hex
+dist/

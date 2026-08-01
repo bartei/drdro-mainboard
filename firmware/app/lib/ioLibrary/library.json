@@ -1,0 +1,19 @@
+{
+  "name": "ioLibrary",
+  "version": "1.0.0",
+  "description": "WIZnet ioLibrary_Driver — W5500 host driver + DHCP client (vendored subset). See VENDORED_FROM.txt for the upstream commit.",
+  "keywords": ["w5500", "ethernet", "wiznet", "dhcp"],
+  "license": "MIT",
+  "frameworks": "stm32cube",
+  "platforms": "ststm32",
+  "build": {
+    "srcDir": ".",
+    "srcFilter": [
+      "+<Ethernet/*.c>",
+      "+<Ethernet/W5500/*.c>",
+      "+<Internet/DHCP/*.c>"
+    ],
+    "includeDir": "Ethernet",
+    "flags": ["-I Internet/DHCP"]
+  }
+}

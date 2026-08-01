@@ -1,0 +1,12 @@
+{
+  "name": "FreeRTOS-CMSIS-RTOSv2",
+  "version": "10.3.1",
+  "description": "FreeRTOS kernel (ARM_CM4F port, heap_4) + CMSIS-RTOS v2 wrapper, vendored from STM32Cube FW_F4 V1.27.1. Requires FreeRTOSConfig.h provided by the project include/ directory.",
+  "keywords": "rtos, freertos, cmsis, stm32",
+  "license": "MIT",
+  "frameworks": ["stm32cube"],
+  "platforms": ["ststm32"],
+  "build": {
+    "libArchive": false
+  }
+}
