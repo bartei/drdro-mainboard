@@ -93,6 +93,14 @@ int main(void)
   __DSB();
   __ISB();
 
+  /* The IAP bootloader hands off with a JUMP and PRIMASK set (bl_jump_to_exec
+   * does __disable_irq() and never re-enables). Without this, the whole of
+   * main() runs with the HAL tick frozen — every HAL timeout is infinite, so a
+   * misbehaving peripheral (e.g. a hung I2C bus in AoutInit) wedges the boot —
+   * until osKernelStart()'s cpsie finally unmasks interrupts. On a clean
+   * power-on reset PRIMASK is already clear and this is a no-op. */
+  __enable_irq();
+
   /* Reset of all peripherals, initializes the Flash interface and the Systick. */
   HAL_Init();
 
@@ -134,10 +142,11 @@ int main(void)
   for (int i = 0; i < SCALES_COUNT; i++)
     setScaleFilter(RampsData.shared.scales[i].timerHandle, RampsData.shared.scales[i].filterValue);
 
-  /* Analog outputs: set the 0-10 V range, then restore the persisted values
-   * (defaults to 0 V). Digital inputs: pull-ups + debounce poll task. */
-  AoutInit();
-  AoutApply(&RampsData.shared);
+  /* Digital inputs: pull-ups + debounce poll task. The task ALSO brings up the
+   * GP8403 analog outputs — deliberately NOT done here: from the first
+   * osThreadNew above until osKernelStart, FreeRTOS holds BASEPRI at the
+   * syscall mask, so the TIM11 HAL tick is frozen and any blocking HAL call
+   * (I2C!) has an infinite timeout. A hung DAC here = a bricked boot. */
   DinStart(&RampsData.shared);
 
   /* Init the RTOS. (Tasks were created in RampsStart — same order as the proven

@@ -199,6 +199,12 @@ void bl_jump_to_exec(void) {
   __set_MSP(sp);
   __DSB();
   __ISB();
+  /* Hand the app a sane machine state: interrupts unmasked (SysTick is off and
+   * nothing else was armed, so none are pending). The baseline left PRIMASK
+   * set here, which froze the app's HAL tick until its scheduler started —
+   * making every pre-scheduler HAL timeout infinite. The app also defends
+   * itself (__enable_irq at entry) so either side alone is sufficient. */
+  __enable_irq();
   ((void (*)(void))pc)();
   while (1) { }                                    /* not reached */
 }

@@ -11,8 +11,58 @@
 
 I2C_HandleTypeDef hi2c1;
 
+/* ~5 µs at 100 MHz — tick-independent (this runs before the scheduler and must
+ * not depend on HAL_Delay). */
+static void shortDelay(void)
+{
+  for (volatile uint32_t d = 0; d < 120U; d++) { }
+}
+
+/* Bus-hang recovery. If a reset interrupts an in-flight transaction (e.g. the
+ * boot-time AoutApply), the slave can be left mid-byte driving SDA low — every
+ * subsequent transfer then fails BUSY until the slave is clocked out. Standard
+ * cure, run BEFORE HAL_I2C_Init: drive SCL manually (open-drain GPIO) for up
+ * to 9 pulses until the slave releases SDA, then generate a STOP. No-op on a
+ * healthy bus (SDA already high). */
+static void i2cBusRecover(void)
+{
+  GPIO_InitTypeDef g = {0};
+  __HAL_RCC_GPIOB_CLK_ENABLE();
+
+  HAL_GPIO_WritePin(I2C1_GPIO_Port, I2C1_SCL_Pin | I2C1_SDA_Pin, GPIO_PIN_SET);
+  g.Pin   = I2C1_SCL_Pin | I2C1_SDA_Pin;
+  g.Mode  = GPIO_MODE_OUTPUT_OD;        /* external 4.7k pull-ups define the high level */
+  g.Pull  = GPIO_NOPULL;
+  g.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(I2C1_GPIO_Port, &g);
+  shortDelay();
+
+  for (int i = 0; i < 9 && HAL_GPIO_ReadPin(I2C1_GPIO_Port, I2C1_SDA_Pin) == GPIO_PIN_RESET; i++) {
+    HAL_GPIO_WritePin(I2C1_GPIO_Port, I2C1_SCL_Pin, GPIO_PIN_RESET);
+    shortDelay();
+    HAL_GPIO_WritePin(I2C1_GPIO_Port, I2C1_SCL_Pin, GPIO_PIN_SET);
+    shortDelay();
+  }
+
+  /* STOP condition: SDA low -> high while SCL is high, releasing the bus. */
+  HAL_GPIO_WritePin(I2C1_GPIO_Port, I2C1_SDA_Pin, GPIO_PIN_RESET);
+  shortDelay();
+  HAL_GPIO_WritePin(I2C1_GPIO_Port, I2C1_SDA_Pin, GPIO_PIN_SET);
+  shortDelay();
+
+  /* The wire is clean now, but the F4's I2C peripheral can still hold a
+   * latched BUSY from the abnormal condition (see the F40x I2C errata) — the
+   * software reset clears the peripheral's bus-state machine. */
+  __HAL_RCC_I2C1_CLK_ENABLE();
+  I2C1->CR1 |= I2C_CR1_SWRST;
+  shortDelay();
+  I2C1->CR1 &= ~I2C_CR1_SWRST;
+}
+
 void MX_I2C1_Init(void)
 {
+  i2cBusRecover();
+
   hi2c1.Instance             = I2C1;
   hi2c1.Init.ClockSpeed      = 100000;
   hi2c1.Init.DutyCycle       = I2C_DUTYCYCLE_2;

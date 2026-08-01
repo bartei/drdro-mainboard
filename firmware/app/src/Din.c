@@ -5,6 +5,7 @@
  * Digital input poll/debounce task — see Din.h.
  */
 #include "Din.h"
+#include "Aout.h"
 #include "cmsis_os2.h"
 
 typedef struct { GPIO_TypeDef *port; uint16_t pin; } din_pin_t;
@@ -29,6 +30,16 @@ static const osThreadAttr_t kDinTaskAttr = {
 static _Noreturn void dinTask(void *arg)
 {
   (void)arg;
+
+  /* GP8403 bring-up lives HERE, in task context, not in main(): between the
+   * first task creation and osKernelStart the HAL tick is frozen (FreeRTOS
+   * masks tick-priority IRQs via BASEPRI), so a blocking I2C call there can
+   * never time out — a hung DAC would wedge the whole boot. Here the tick is
+   * live: a dead bus costs three bounded timeouts and aout reports `i2c`
+   * errors, while everything else runs. */
+  AoutInit();
+  AoutApply(sShared);
+
   uint8_t integ[6] = {0};
   uint16_t stable = 0;                    /* debounced bitmask */
 
