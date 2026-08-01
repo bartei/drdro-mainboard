@@ -1,0 +1,90 @@
+{
+  // This repo root is NOT a PlatformIO project — the firmware lives in firmware/app
+  // and firmware/bootloader (two sibling PIO projects sharing firmware/shared/),
+  // next to the hardware design files. The PlatformIO toolbar keys off a
+  // platformio.ini in the workspace root, so these tasks drive the CLI with
+  // `-d` instead. Ctrl+Shift+B runs Build (app).
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "PlatformIO: Build app",
+      "type": "shell",
+      "command": "pio run -d firmware/app",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": ["$gcc"],
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "PlatformIO: Build bootloader",
+      "type": "shell",
+      "command": "pio run -d firmware/bootloader",
+      "group": "build",
+      "problemMatcher": ["$gcc"],
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "PlatformIO: Upload app (ST-Link)",
+      "type": "shell",
+      "command": "pio run -d firmware/app -t upload",
+      "group": "build",
+      "problemMatcher": ["$gcc"],
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "PlatformIO: Upload bootloader (ST-Link)",
+      "type": "shell",
+      "command": "pio run -d firmware/bootloader -t upload",
+      "group": "build",
+      "problemMatcher": ["$gcc"],
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "PlatformIO: Test (native)",
+      "type": "shell",
+      "command": "pio test -d firmware/app -e native",
+      "group": "test",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "PlatformIO: Clean app",
+      "type": "shell",
+      "command": "pio run -d firmware/app -t clean",
+      "group": "build",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "Factory image: build + merge hex",
+      "detail": "Build bootloader + app, merge into firmware/factory.hex.",
+      "type": "shell",
+      "command": "pio run -d firmware/bootloader && pio run -d firmware/app && python3 firmware/tools/make_factory.py firmware/factory.hex firmware/bootloader/.pio/build/bootloader/firmware.hex firmware/app/.pio/build/drdro_mainboard_v15/firmware.hex",
+      "group": "build",
+      "problemMatcher": ["$gcc"],
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "PlatformIO: Build with Ethernet self-test",
+      "detail": "Rebuild with NET_SELFTEST=1 to re-measure which PHY modes actually receive (~40 s at boot).",
+      "type": "shell",
+      "command": "PLATFORMIO_BUILD_FLAGS=-DNET_SELFTEST=1 pio run -d firmware/app -t upload",
+      "group": "build",
+      "problemMatcher": ["$gcc"],
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "Serial monitor (RS-485 debug console)",
+      "type": "shell",
+      "command": "pio device monitor -d firmware/app -b 115200",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "ST-Link: probe",
+      "type": "shell",
+      "command": "st-info --probe",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "shared" }
+    }
+  ]
+}

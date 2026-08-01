@@ -1,0 +1,72 @@
+{
+  "name": "drDRO mainboard V1.5 (PlatformIO / STM32F411RET6)",
+  "build": { "dockerfile": "Dockerfile" },
+
+  // GitHub CLI for the gh-based PR workflow.
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+
+  "mounts": [
+    // Persist PlatformIO home (platform, stm32cube framework, arm toolchain,
+    // tool-openocd, caches) across rebuilds so they are not re-downloaded.
+    // Deliberately a DIFFERENT volume from the drdro-firmware-f4 container's
+    // `drdro-platformio`, so the two projects cannot disturb each other's
+    // pinned packages. The cost is one extra toolchain download, once.
+    "source=drdro-mainboard-platformio,target=/home/vscode/.platformio,type=volume",
+
+    // Share the HOST's Claude Code login + config so `claude` in the container is
+    // already signed in and uses the same settings/memory/global CLAUDE.md.
+    //   ~/.claude       — .credentials.json (OAuth), settings, projects, memory
+    //   ~/.claude.json  — main config (onboarding flag, MCP servers, history)
+    // (Linux host paths; both must exist on the host before opening the container.)
+    "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind",
+    "source=${localEnv:HOME}/.claude.json,target=/home/vscode/.claude.json,type=bind",
+
+    // Full host device access: ST-Link (USB / libusb under /dev/bus/usb) for
+    // flashing + debugging, and USB-serial adapters (/dev/ttyUSB*, /dev/ttyACM*)
+    // for the RS485 debug console. Binding all of /dev covers hotplug too, so the
+    // ST-Link is found whether it was plugged in before or after container start.
+    // (If /dev ever misbehaves on your host, narrow this to /dev/bus/usb.)
+    "source=/dev,target=/dev,type=bind"
+  ],
+
+  // Privileged + host networking = full, frictionless access to host USB/serial
+  // devices (no per-device --device flags, works with hotplug). Linux host only.
+  // --network=host additionally puts the container on the real LAN, so `ping` and
+  // `tcpdump` can reach/observe the board's DHCP address directly.
+  "runArgs": ["--privileged", "--network=host"],
+
+  "containerEnv": {
+    // The container's claude is pinned by the image build. Don't let it self-update
+    // and write update artifacts into the shared host ~/.claude.
+    "DISABLE_AUTOUPDATER": "1"
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "platformio.platformio-ide",
+        "ms-vscode.cpptools",
+        "marus25.cortex-debug",
+        "redhat.vscode-yaml"
+      ],
+      "settings": {
+        "platformio-ide.useBuiltinPIOCore": false,
+        // Point the extension at the CLI core installed in the ~/.platformio volume
+        // by setup.sh, so it does NOT try to (re)install its own core on open.
+        "platformio-ide.customPATH": "/home/vscode/.platformio/penv/bin",
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  },
+
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+  // Don't attach VS Code (and activate the PlatformIO extension) until setup.sh
+  // has installed the core into ~/.platformio — otherwise the extension's core
+  // check races the install and reports "Failed to install PlatformIO IDE"
+  // until the window is reloaded. Costs a wait on FIRST create only; rebuilds
+  // reuse the volume so setup.sh is near-instant.
+  "waitFor": "postCreateCommand",
+  "remoteUser": "vscode"
+}
