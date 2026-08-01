@@ -71,22 +71,33 @@ def wait_for(ser, want, timeout):
 
 
 def wait_ack(ser, timeout=2.0):
+    """Wait for ACK/NAK/CAN. A real YMODEM abort is CAN CAN — a single 0x18 can
+    be line noise (RS-485 bus contention garbage), so require two in a row."""
     deadline = time.monotonic() + timeout
+    last_can = False
     while time.monotonic() < deadline:
         b = ser.read(1)
-        if b and b[0] in (ACK, NAK, CAN):
+        if not b:
+            continue
+        if b[0] == CAN:
+            if last_can:
+                return CAN
+            last_can = True
+            continue
+        last_can = False
+        if b[0] in (ACK, NAK):
             return b[0]
     return None
 
 
-def send_block(ser, block, retries=10):
+def send_block(ser, block, retries=10, ack_timeout=2.0):
     for _ in range(retries):
         ser.write(block); ser.flush()
-        r = wait_ack(ser)
+        r = wait_ack(ser, ack_timeout)
         if r == ACK:
             return True
         if r == CAN:
-            sys.exit("bootloader cancelled the transfer (CAN).")
+            sys.exit("bootloader cancelled the transfer (CAN CAN).")
     return False
 
 
@@ -105,7 +116,11 @@ def ymodem_send(ser, path):
     seq = 1
     for off in range(0, size, DATA_LEN):
         chunk = data[off:off + DATA_LEN].ljust(DATA_LEN, bytes([SUB]))
-        if not send_block(ser, make_block(seq, chunk)):
+        # The FIRST data block triggers the receiver's lazy 128K sector erase
+        # (up to ~4 s of CPU stall): retransmitting into that window collides
+        # with the (delayed) ACK on the half-duplex bus. Wait it out instead.
+        if not send_block(ser, make_block(seq, chunk),
+                          ack_timeout=(8.0 if seq == 1 else 2.0)):
             sys.exit(f"block {seq} not acked.")
         seq += 1
         print(f"\r  {min(off + DATA_LEN, size)}/{size} bytes", end="", flush=True)

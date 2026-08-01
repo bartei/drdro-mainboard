@@ -67,6 +67,12 @@ static void settings_to_shared(const settings_t *s, rampsSharedData_t *sh) {
 static int write_slot(int slot, const settings_t *s) {
   uint32_t base = SETTINGS_SLOT_BASE(slot);
   HAL_FLASH_Unlock();
+  /* Clear any stale FLASH_SR error flags before starting: latched garbage
+   * (e.g. from a stray write to the flash alias region in a previous life —
+   * they survive an app<->bootloader jump) makes the HAL abort the first
+   * erase/program with a phantom error. */
+  __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_EOP | FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR |
+                         FLASH_FLAG_PGAERR | FLASH_FLAG_PGPERR | FLASH_FLAG_PGSERR);
   FLASH_EraseInitTypeDef e = {0};
   e.TypeErase    = FLASH_TYPEERASE_SECTORS;
   e.Sector       = SETTINGS_SLOT_SECTOR(slot);

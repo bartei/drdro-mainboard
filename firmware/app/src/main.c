@@ -40,6 +40,10 @@ void SystemClock_Config(void);
 void EnterBootloader(void) {
   __disable_irq();
   SysTick->CTRL = 0U; SysTick->LOAD = 0U; SysTick->VAL = 0U;
+  /* Stop the 100 kHz motion timer at the PERIPHERAL, not just in the NVIC:
+   * across the jump it would otherwise keep running with UIF asserted, waiting
+   * to ambush the next image the moment it unmasks the shared vector. */
+  TIM9->CR1 = 0U; TIM9->DIER = 0U; TIM9->SR = 0U;
   for (int i = 0; i < 8; i++) { NVIC->ICER[i] = 0xFFFFFFFFU; NVIC->ICPR[i] = 0xFFFFFFFFU; }
   uint32_t sp = *(volatile uint32_t *)BL_BASE_ADDR;
   uint32_t pc = *(volatile uint32_t *)(BL_BASE_ADDR + 4U);
@@ -92,6 +96,19 @@ int main(void)
   SCB->VTOR = (uint32_t)g_ramVectors;
   __DSB();
   __ISB();
+
+  /* A bootloader JUMP (the `update`/`boot` chain) does not reset peripherals:
+   * the PREVIOUS app's TIM9 arrives still running with its update interrupt
+   * asserted. The first NVIC enable of that line would fire the motion ISR
+   * before RampsData's timer handles are wired — a NULL deref chain ending in
+   * a bus fault (found the hard way over RS-485 YMODEM update on the bench).
+   * Quiesce it before interrupts come on. Gated on the clock: after a real
+   * reset TIM9 is unclocked and already quiet. */
+  if (RCC->APB2ENR & RCC_APB2ENR_TIM9EN) {
+    TIM9->CR1  = 0U;
+    TIM9->DIER = 0U;
+    TIM9->SR   = 0U;
+  }
 
   /* The IAP bootloader hands off with a JUMP and PRIMASK set (bl_jump_to_exec
    * does __disable_irq() and never re-enables). Without this, the whole of

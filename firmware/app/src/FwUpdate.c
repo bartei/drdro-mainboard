@@ -53,6 +53,12 @@ static void fwFlashBegin(uint32_t base, uint32_t sector)
 {
   s_base = base; s_sector = sector; s_erased = 0;
   HAL_FLASH_Unlock();
+  /* Clear any stale FLASH_SR error flags before starting: latched garbage
+   * (e.g. from a stray write to the flash alias region in a previous life —
+   * they survive an app<->bootloader jump) makes the HAL abort the first
+   * erase/program with a phantom error. */
+  __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_EOP | FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR |
+                         FLASH_FLAG_PGAERR | FLASH_FLAG_PGPERR | FLASH_FLAG_PGSERR);
 }
 
 static void fwFlashEnd(void) { HAL_FLASH_Lock(); }

@@ -101,15 +101,12 @@ void HAL_TIM_Encoder_MspInit(TIM_HandleTypeDef* tim_encoderHandle)
     GPIO_InitStruct.Alternate = ENC1_AF;
     HAL_GPIO_Init(ENC1_GPIO_Port, &GPIO_InitStruct);
 
-    /* Shared TIM1/TIM9..11 vectors: TIM9 (motion ISR) at prio 5 — register-only
-     * RAM_FUNC handler, no RTOS calls, so it may sit at the RTOS mask boundary.
-     * TIM10 (unused) and TIM11 (HAL timebase) at the lowest priority. */
-    HAL_NVIC_SetPriority(TIM1_BRK_TIM9_IRQn, 5, 0);
-    HAL_NVIC_EnableIRQ(TIM1_BRK_TIM9_IRQn);
-    HAL_NVIC_SetPriority(TIM1_UP_TIM10_IRQn, 15, 0);
-    HAL_NVIC_EnableIRQ(TIM1_UP_TIM10_IRQn);
-    HAL_NVIC_SetPriority(TIM1_TRG_COM_TIM11_IRQn, 15, 0);
-    HAL_NVIC_EnableIRQ(TIM1_TRG_COM_TIM11_IRQn);
+    /* Deliberately NO NVIC enables here: TIM1 in encoder mode needs no
+     * interrupts. TIM9's line is enabled by ITS OWN MspInit (below) and TIM11's
+     * by the HAL timebase init. Enabling shared TIM1/TIM9..11 vectors from
+     * here (as the baseline did) opened a window where a stale TIM9 update —
+     * alive across a bootloader jump — fired the motion ISR before its data
+     * was wired. */
   }
   else if(tim_encoderHandle->Instance==TIM2)
   {

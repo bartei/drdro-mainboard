@@ -128,8 +128,17 @@ static void cmd_flash(int argc, char **argv) {     /* YMODEM-receive into a bank
   if (argc < 2 || parse_bank(argv[1], &n)) { resp_err("usage: flash <0|1>"); return; }
   /* No framed "ready": the client starts YMODEM on our 'C'. We frame the result after. */
   uint32_t size = 0;
+  extern uint32_t flash_fail_phase, flash_fail_addr, flash_fail_hal;
+  flash_fail_phase = 0U;
   int rc = ymodem_receive(s_uart, BANK_BASE(n), BANK_SECTOR(n), &size);
-  if (rc != YM_OK)                  { resp_err("ymodem"); return; }
+  if (rc != YM_OK) {
+    resp_err("ymodem");
+    resp_kv_u("ym.rc", (uint32_t)(-rc));
+    resp_kv_u("ym.phase", flash_fail_phase);      /* 1=erase 2=program 3=verify */
+    resp_kv_hex("ym.addr", flash_fail_addr);
+    resp_kv_hex("ym.hal", flash_fail_hal);
+    return;
+  }
   if (!bl_image_valid(BANK_BASE(n))){ resp_err("bad image"); return; }
   /* Record the bank's region CRC32 so boot can detect later corruption. */
   settings_t s; settings_load(&s);

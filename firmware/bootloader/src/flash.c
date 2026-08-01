@@ -19,6 +19,12 @@ static uint32_t s_base;
 static uint32_t s_sector;
 static uint8_t  s_erased;
 
+/* Failure forensics for cmd_flash's error response: which phase died
+ * (1=erase, 2=program, 3=verify), where, and the HAL error code. */
+uint32_t flash_fail_phase;
+uint32_t flash_fail_addr;
+uint32_t flash_fail_hal;
+
 int flash_erase_sector(uint32_t sector) {
   if (sector == BL_SECTOR) return -1;            /* never erase the bootloader */
   FLASH_EraseInitTypeDef e = {0};
@@ -27,7 +33,11 @@ int flash_erase_sector(uint32_t sector) {
   e.NbSectors    = 1U;
   e.VoltageRange = FLASH_VOLTAGE_RANGE_3;         /* 3.3 V => 32-bit program/erase */
   uint32_t err = 0;
-  return (HAL_FLASHEx_Erase(&e, &err) == HAL_OK) ? 0 : -1;
+  if (HAL_FLASHEx_Erase(&e, &err) == HAL_OK) return 0;
+  flash_fail_phase = 1U;
+  flash_fail_addr  = err;                    /* faulty-sector report from HAL */
+  flash_fail_hal   = HAL_FLASH_GetError();
+  return -1;
 }
 
 /* Program + read-back verify a word-aligned span. Flash must be unlocked. */
@@ -35,8 +45,14 @@ static int program_verify(uint32_t addr, const uint8_t *data, uint32_t len) {
   for (uint32_t i = 0; i < len; i += 4U) {
     uint32_t w;
     memcpy(&w, data + i, 4U);
-    if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, addr + i, w) != HAL_OK) return -1;
-    if (*(volatile uint32_t *)(addr + i) != w) return -1;
+    if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, addr + i, w) != HAL_OK) {
+      flash_fail_phase = 2U; flash_fail_addr = addr + i; flash_fail_hal = HAL_FLASH_GetError();
+      return -1;
+    }
+    if (*(volatile uint32_t *)(addr + i) != w) {
+      flash_fail_phase = 3U; flash_fail_addr = addr + i; flash_fail_hal = *(volatile uint32_t *)(addr + i);
+      return -1;
+    }
   }
   return 0;
 }
@@ -44,6 +60,12 @@ static int program_verify(uint32_t addr, const uint8_t *data, uint32_t len) {
 void flash_program_begin(uint32_t base, uint32_t sector) {
   s_base = base; s_sector = sector; s_erased = 0;
   HAL_FLASH_Unlock();
+  /* Clear any stale FLASH_SR error flags before starting: latched garbage
+   * (e.g. from a stray write to the flash alias region in a previous life —
+   * they survive an app<->bootloader jump) makes the HAL abort the first
+   * erase/program with a phantom error. */
+  __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_EOP | FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR |
+                         FLASH_FLAG_PGAERR | FLASH_FLAG_PGPERR | FLASH_FLAG_PGSERR);
 }
 
 void flash_program_end(void) {
@@ -73,6 +95,12 @@ int flash_copy_region(uint32_t dst_sector, uint32_t dst_base, uint32_t src_base)
 int flash_write_settings(settings_t *s) {
   int slot = settings_prepare(s);                 /* bump seq + seal; pick inactive slot */
   HAL_FLASH_Unlock();
+  /* Clear any stale FLASH_SR error flags before starting: latched garbage
+   * (e.g. from a stray write to the flash alias region in a previous life —
+   * they survive an app<->bootloader jump) makes the HAL abort the first
+   * erase/program with a phantom error. */
+  __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_EOP | FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR |
+                         FLASH_FLAG_PGAERR | FLASH_FLAG_PGPERR | FLASH_FLAG_PGSERR);
   int rc = flash_erase_sector(SETTINGS_SLOT_SECTOR(slot));
   if (rc == 0) rc = program_verify(SETTINGS_SLOT_BASE(slot), (const uint8_t *)s, sizeof(*s));
   HAL_FLASH_Lock();

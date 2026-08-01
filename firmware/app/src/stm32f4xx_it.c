@@ -73,20 +73,32 @@ RAM_FUNC void TIM1_BRK_TIM9_IRQHandler(void)
 
 /**
   * @brief TIM1 update interrupt and TIM10 global interrupt (both unused; the
-  *        HAL handler clears anything spurious).
+  *        HAL handler clears anything spurious). htim1 guarded: before
+  *        MX_TIM1_Init its Instance is NULL, and the HAL would then "handle"
+  *        register garbage read from address 0 — the flash alias — and can
+  *        WRITE back there, latching FLASH_SR error flags (PGSERR|PGPERR)
+  *        that abort the next real flash erase. Found the hard way: the very
+  *        first tick interrupt (TIM11, this shared vector's sibling below)
+  *        fires inside HAL_Init, long before the TIM handles exist.
   */
 void TIM1_UP_TIM10_IRQHandler(void)
 {
-  HAL_TIM_IRQHandler(&htim1);
+  if (htim1.Instance != NULL) {
+    HAL_TIM_IRQHandler(&htim1);
+  }
 }
 
 /**
   * @brief TIM1 trigger/commutation and TIM11 global interrupt.
-  *        TIM11 is the HAL timebase (see stm32f4xx_hal_timebase_tim.c).
+  *        TIM11 is the HAL timebase (see stm32f4xx_hal_timebase_tim.c) and
+  *        fires from inside HAL_Init — see the NULL-Instance note above.
+  *        TIM1 never enables trigger/commutation interrupts in encoder mode.
   */
 void TIM1_TRG_COM_TIM11_IRQHandler(void)
 {
-  HAL_TIM_IRQHandler(&htim1);
+  if (htim1.Instance != NULL) {
+    HAL_TIM_IRQHandler(&htim1);
+  }
   HAL_TIM_IRQHandler(&htim11);
 }
 
