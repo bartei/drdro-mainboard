@@ -28,7 +28,12 @@
     // for the RS485 debug console. Binding all of /dev covers hotplug too, so the
     // ST-Link is found whether it was plugged in before or after container start.
     // (If /dev ever misbehaves on your host, narrow this to /dev/bus/usb.)
-    "source=/dev,target=/dev,type=bind"
+    "source=/dev,target=/dev,type=bind",
+
+    // Share the HOST's SSH keys so `git push` (github.com over SSH) works inside
+    // the container — same pattern as the .claude mounts above. Mounted rw so ssh
+    // can append to known_hosts on first connect. Must exist on the host.
+    "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind"
   ],
 
   // Privileged + host networking = full, frictionless access to host USB/serial

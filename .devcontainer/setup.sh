@@ -41,6 +41,18 @@ echo "[setup] Fetching tool-openocd (uploader)..."
 pio pkg install -g -t platformio/tool-openocd >/dev/null 2>&1 \
   || echo "[setup] tool-openocd fetch skipped — it will be pulled on first upload."
 
+# GitHub push access depends on the host ~/.ssh bind mount — surface it here
+# rather than at first push. (BatchMode: never hang on a passphrase prompt.)
+if [ -d "$HOME/.ssh" ] && ls "$HOME/.ssh"/id_* >/dev/null 2>&1; then
+  if ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
+    echo "[setup] github:   SSH key works (push enabled)"
+  else
+    echo "[setup] github:   ~/.ssh mounted but auth failed — passphrase-protected key? run ssh-add on the HOST (agent is forwarded)"
+  fi
+else
+  echo "[setup] github:   no ~/.ssh key found — check the devcontainer ~/.ssh bind mount"
+fi
+
 # Report the extra tooling so a broken share/install is obvious at create time.
 echo "[setup] claude:   $(command -v claude >/dev/null && claude --version 2>/dev/null || echo 'NOT FOUND')"
 if [ -r "$HOME/.claude/.credentials.json" ]; then
