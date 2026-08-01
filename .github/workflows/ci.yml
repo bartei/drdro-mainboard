@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: read              # least-privilege GITHUB_TOKEN
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # full history + tags so FW_VERSION (git describe) resolves
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-${{ runner.os }}-${{ hashFiles('firmware/app/platformio.ini', 'firmware/bootloader/platformio.ini') }}
+          restore-keys: pio-${{ runner.os }}-
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Build application
+        run: pio run -d firmware/app -e drdro_mainboard_v15
+
+      - name: Build bootloader
+        run: pio run -d firmware/bootloader
+
+      - name: Run native unit tests
+        run: pio test -d firmware/app -e native
+
+      - name: Build combined factory image (bootloader + app @ Exec)
+        run: |
+          python firmware/tools/make_factory.py factory.hex \
+            firmware/bootloader/.pio/build/bootloader/firmware.hex \
+            firmware/app/.pio/build/drdro_mainboard_v15/firmware.hex
+
+      - name: Upload firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: |
+            firmware/app/.pio/build/drdro_mainboard_v15/firmware.elf
+            firmware/app/.pio/build/drdro_mainboard_v15/firmware.bin
+            firmware/app/.pio/build/drdro_mainboard_v15/firmware.hex
+            firmware/bootloader/.pio/build/bootloader/firmware.elf
+            firmware/bootloader/.pio/build/bootloader/firmware.bin
+            firmware/bootloader/.pio/build/bootloader/firmware.hex
+            factory.hex
+          if-no-files-found: error

@@ -1,0 +1,33 @@
+# drdro-mainboard is not a Python project — this file exists only to configure
+# python-semantic-release (the same release tooling as the other drdro-* repos; see
+# .github/workflows/release.yml). Versioning is tag-only: no source file carries the
+# version, the firmware binaries embed it via FW_VERSION at build time
+# (firmware/app/support/fw_version.py, firmware/bootloader/support/bl_version.py).
+#
+# push to master/main -> OFFICIAL stable release (vX.Y.Z) when there are releasable commits
+# push to dev         -> next version as a BETA prerelease (vX.Y.Z-beta.N)
+
+[tool.semantic_release]
+# Fresh repo, no tags yet: the first release is v1.0.0 (the firmware ships feature-complete).
+allow_zero_version = false
+hvcs = "github"
+tag_format = "v{version}"
+# Runs inside `semantic-release version` with NEW_VERSION exported: builds app + bootloader
+# with FW_VERSION baked in and stages the release assets into firmware/dist/ for
+# `semantic-release publish`. Asset names (drdro-mainboard-app.bin, ...) are the contract
+# with the firmware updater tooling — do not rename them. They deliberately differ from the
+# old board's drdro-app.bin so an updater can never cross-flash the two boards.
+build_command = "firmware/tools/build-release.sh"
+
+[tool.semantic_release.branches.main]
+match = "(master|main)"
+prerelease = false
+
+[tool.semantic_release.branches.dev]
+match = "dev"
+prerelease = true
+prerelease_token = "beta"
+
+[tool.semantic_release.publish]
+dist_glob_patterns = ["firmware/dist/*"]
+upload_to_vcs_release = true

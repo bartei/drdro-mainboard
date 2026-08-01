@@ -1,0 +1,85 @@
+name: Release
+
+# Semantic release (python-semantic-release, same tooling as the other drdro-* repos).
+# push to master -> OFFICIAL stable release (vX.Y.Z) — gated on the native test suite
+# push to dev    -> next version as a BETA prerelease (vX.Y.Z-beta.N, GitHub prerelease)
+# The firmware is built INSIDE `semantic-release version` (build_command in pyproject.toml)
+# so the binaries embed the exact released version (FW_VERSION -> app/bootloader support
+# scripts). Release notes fold beta changes into the stable release
+# (templates/.release_notes.md.j2). Assets staged in firmware/dist/:
+#   drdro-mainboard-app.{bin,hex,elf}          the application (.bin feeds dro_update.py,
+#                                              serial or --net — the automated update path)
+#   drdro-mainboard-bootloader.{bin,hex,elf}   the IAP bootloader (ST-Link only)
+#   drdro-mainboard-factory.hex                merged bootloader+app for blank boards
+#   SHA256SUMS.txt
+
+on:
+  push:
+    branches: [master, main, dev]
+
+permissions:
+  contents: write              # push the changelog commit, create tags and releases
+
+concurrency: release
+
+jobs:
+  release:
+    name: test + semantic-release (version + firmware + changelog)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Don't run on the changelog commit semantic-release pushes back.
+    if: "!contains(github.event.head_commit.message, 'chore(release):')"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # semantic-release needs full history + tags
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-${{ runner.os }}-${{ hashFiles('firmware/app/platformio.ini', 'firmware/bootloader/platformio.ini') }}
+          restore-keys: pio-${{ runner.os }}-
+
+      - name: Install PlatformIO + semantic-release
+        run: |
+          pip install --upgrade platformio
+          pipx install python-semantic-release
+
+      # The release gate: no green tests, no release.
+      - name: Run native unit tests
+        run: pio test -d firmware/app -e native
+
+      - name: Semantic release (version -> build firmware -> tag -> publish + assets)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          semantic-release version
+          semantic-release publish
+
+      - name: Changelog report (job summary)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ls firmware/dist/drdro-mainboard-app.bin >/dev/null 2>&1; then
+            TAG="$(git describe --tags --abbrev=0)"
+            {
+              echo "## Released ${TAG} (${GITHUB_REF_NAME})"
+              echo
+              gh release view "$TAG" --json body -q .body
+              echo
+              echo '### Assets'
+              echo '```'
+              ls -lh firmware/dist/
+              cat firmware/dist/SHA256SUMS.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No release for this push (no version bump)." >> "$GITHUB_STEP_SUMMARY"
+          fi
