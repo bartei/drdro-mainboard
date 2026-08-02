@@ -1,0 +1,29 @@
+#: import HomeToolbar dro.components.home.home_toolbar
+#: import FirmwareUpdateBanner dro.components.home.fw_update_banner
+<Label>:
+  font_name: "fonts/iosevka-regular.ttf"
+
+<Button>:
+  font_name: "fonts/Manrope-Bold.ttf"
+
+<TextInput>:
+  font_name: "fonts/iosevka-regular.ttf"
+
+<HomePage>:
+  BoxLayout:
+    orientation: "vertical"
+
+    # Full-width warning strip; collapsed to zero height while the firmware is compatible.
+    FirmwareUpdateBanner:
+      id: fw_banner
+
+    BoxLayout:
+      orientation: "horizontal"
+
+      HomeToolbar:
+        id: home_toolbar
+
+      BoxLayout:
+        id: bars_container
+        orientation: "vertical"
+        size_hint: 1, 1

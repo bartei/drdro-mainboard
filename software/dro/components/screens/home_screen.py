@@ -1,0 +1,122 @@
+from keke import TraceOutput
+from kivy.core.window import Window
+from kivy.logger import Logger
+from kivy.properties import ObjectProperty
+from kivy.clock import Clock
+from kivy.uix.screenmanager import Screen
+
+from dro.components.home.dro_mode_layout import DroModeLayout
+from dro.components.home.els_mode_layout import ElsModeLayout
+from dro.components.home.elsbar import ElsBar
+from dro.components.home.index_mode_layout import IndexModeLayout
+from dro.components.home.jog_mode_layout import JogModeLayout
+from dro.components.home.statusbar import StatusBar
+from dro.utils.kv_loader import load_kv
+
+log = Logger.getChild(__name__)
+load_kv(__file__)
+
+
+class HomePage(Screen):
+    device = ObjectProperty()
+    servo = ObjectProperty()
+
+    def __init__(self, **kv):
+        from dro.app import MainApp
+        self.app: MainApp = MainApp.get_running_app()
+        super().__init__(**kv)
+
+        self.bars_container = self.ids['bars_container']
+        # The debug ribbon is opt-in (Stats screen). Show/hide it with the setting and tell
+        # the board so it only polls diag.* metrics while the ribbon is actually visible.
+        self.status_bar = StatusBar()
+        self._apply_ribbon(None, self.app.formats.show_stats_ribbon)
+        self.app.formats.bind(show_stats_ribbon=self._apply_ribbon)
+
+        # Create shared ElsBar (has SavingDispatcher state)
+        self.els_bar = ElsBar(id_override="0")
+
+        # Create all mode layouts once
+        self.mode_layouts = {
+            1: IndexModeLayout(),
+            2: ElsModeLayout(els_bar=self.els_bar),
+            3: JogModeLayout(),
+            4: DroModeLayout(),
+        }
+
+        # Configure initial mode, disable Indexing if servo is in ELS mode
+        self.next_mode = self.app.current_mode
+        if self.app.servo.elsMode and self.next_mode == 1:
+            self.next_mode = 2
+
+        self.current_layout = None
+        self._keyboard = Window._system_keyboard
+        self._keyboard.bind(on_key_down=self._on_keyboard_down)
+        self.app.bind(current_mode=self.change_mode)
+        self.app.bind(axes=self._on_axes_changed)
+        self.change_mode(self, self.next_mode)
+
+    def _apply_ribbon(self, instance, value):
+        """Show/hide the top debug ribbon and gate the board's diag polling to match."""
+        shown = bool(value)
+        self.app.board.ribbon_visible = shown
+        parented = self.status_bar.parent is not None
+        if shown and not parented:
+            # index = len(children) puts it at the top of the vertical bars container.
+            self.bars_container.add_widget(self.status_bar, index=len(self.bars_container.children))
+        elif not shown and parented:
+            self.bars_container.remove_widget(self.status_bar)
+
+    def _on_axes_changed(self, instance, value):
+        """Rebuild axis bars in all mode layouts when the axes list changes."""
+        for layout in self.mode_layouts.values():
+            layout.rebuild_axes()
+
+    def change_mode(self, instance, value):
+        self.next_mode = value
+        if self.app.servo.servoEnable != 0:
+            self.app.servo.jogSpeed = 0
+        Clock.schedule_once(self.change_mode_speed_check, 0.1)
+
+    def change_mode_speed_check(self, instance):
+        if self.app.servo.speed != 0:
+            Clock.schedule_once(self.change_mode_speed_check, 0.1)
+            return
+
+        # Reset enables
+        jog_layout = self.mode_layouts[3]
+        jog_layout.jog_bar.enable_jog = False
+        self.app.servo.servoEnable = 0
+
+        # Swap the entire mode layout
+        if self.current_layout is not None:
+            self.bars_container.remove_widget(self.current_layout)
+
+        self.current_layout = self.mode_layouts.get(self.next_mode)
+        if self.current_layout is not None:
+            self.bars_container.add_widget(self.current_layout)
+
+    def on_touch_down(self, touch):
+        self.app.beep()
+        return super().on_touch_down(touch)
+
+    def _keyboard_closed(self):
+        self._keyboard.unbind(on_key_down=self._on_keyboard_down)
+        self._keyboard = None
+
+    def _on_keyboard_down(self, keyboard, keycode, text, modifiers):
+        if text == "t" and "ctrl" in modifiers:
+            self._toggle_trace()
+            return True
+
+    def _toggle_trace(self):
+        """Ctrl+T toggles keke performance tracing to trace.out (start/stop)."""
+        import contextlib
+        if getattr(self, "_trace_stack", None) is None:
+            self._trace_stack = contextlib.ExitStack()
+            self._trace_stack.enter_context(TraceOutput(file=open("trace.out", "w")))
+            log.info("Performance trace started → trace.out")
+        else:
+            self._trace_stack.close()
+            self._trace_stack = None
+            log.info("Performance trace stopped (trace.out written)")

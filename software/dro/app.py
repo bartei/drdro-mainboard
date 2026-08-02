@@ -1,0 +1,163 @@
+import os
+
+from kivy.app import App
+from kivy.config import Config
+from kivy.resources import resource_add_path
+from kivy.properties import ObjectProperty, ConfigParserProperty, NumericProperty, ListProperty, StringProperty, BooleanProperty
+from kivy.logger import Logger
+log = Logger.getChild(__name__)
+
+# Resolve "fonts/…", "pictures/…", "sounds/…" relative to the package, independent of CWD.
+resource_add_path(os.path.dirname(__file__))
+
+from dro.components.appsettings import config
+from dro.dispatchers.axis import AxisDispatcher
+from dro.dispatchers.board import Board
+from dro.dispatchers.els import ElsDispatcher
+from dro.dispatchers.formats import FormatsDispatcher
+from dro.dispatchers.input import InputDispatcher
+from dro.dispatchers.servo import ServoDispatcher
+
+
+class MainApp(App):
+    display_color = ConfigParserProperty(
+        defaultvalue="#ffffffff",
+        section="formatting",
+        key="display_color",
+        config=config,
+    )
+
+    formats = ObjectProperty()
+    abs_inc = ConfigParserProperty(
+        defaultvalue="ABS", section="global", key="abs_inc", config=config, val_type=str
+    )
+    currentOffset = NumericProperty(0)
+    abs_mode = BooleanProperty(False)
+
+    tool = NumericProperty(0)
+
+    board = ObjectProperty()
+
+    home = ObjectProperty()
+
+    servo: ServoDispatcher = ObjectProperty()
+
+    inputs: list[InputDispatcher] = ListProperty()
+
+    # Backward compat alias for KV files that reference app.scales
+    scales: list[InputDispatcher] = ListProperty()
+
+    axes: list[AxisDispatcher] = ListProperty()
+
+    els: ElsDispatcher = ObjectProperty()
+
+    current_mode = ConfigParserProperty(
+        defaultvalue=1, section="device", key="current_mode", config=config, val_type=int
+    )
+
+    scales_count = ConfigParserProperty(
+        defaultvalue=4, section="device", key="scales_count", config=config, val_type=int
+    )
+
+    manager = ObjectProperty()
+
+    version = StringProperty()
+
+    def __init__(self, **kv):
+        super().__init__(**kv)
+        self.beeper = None  # ApproachBeeper, created in build() once axes exist
+
+    def beep(self, *args, **kv):
+        # Short synthesized UI click (no audio asset; see dro.utils.tone).
+        from dro.utils import tone
+        tone.play_tone(880, 40, self.formats.volume)
+
+    @staticmethod
+    def load_help(help_file_name):
+        """
+        Loads the specified help file text from the help files folder.
+        Looks for .rst files first, falling back to the original filename.
+        """
+        help_dir = os.path.join(os.path.dirname(__file__), "help")
+
+        # Prefer .rst version of the file
+        rst_name = help_file_name.rsplit(".", 1)[0] + ".rst"
+        rst_path = os.path.join(help_dir, rst_name)
+        if os.path.exists(rst_path):
+            with open(rst_path, "r") as f:
+                return f.read()
+
+        # Fall back to original filename
+        help_file_path = os.path.join(help_dir, help_file_name)
+        if not os.path.exists(help_file_path):
+            return "Help file not found"
+
+        with open(help_file_path, "r") as f:
+            return f.read()
+
+    def set_mode(self, mode_id: int):
+        self.current_mode = mode_id
+
+    def get_spindle_axis(self):
+        return self.board.get_spindle_axis()
+
+    def _sync_input_aliases(self, board, inputs):
+        """Mirror the board's (possibly resized) input list onto the KV-facing aliases."""
+        self.inputs = list(inputs)
+        self.scales = list(inputs)
+
+    def build(self):
+        self.formats = FormatsDispatcher(id_override="0")
+        # Connection config (see the Connection setup page). New installs default to TCP/Ethernet;
+        # RS-485 stays selectable. The board IP is blank until the user sets it (stays disconnected).
+        transport = config.getdefault("device", "transport", "tcp")
+        serial_port = config.getdefault("device", "serial_port", "/dev/serial0")
+        baudrate = int(config.getdefault("device", "baudrate", 115200))
+        host = config.getdefault("device", "host", "")
+        tcp_port = int(config.getdefault("device", "tcp_port", 5555))
+        # Ethernet has the headroom for a faster status poll than RS-485 (configurable).
+        default_hz = 100 if transport == "tcp" else 50
+        refresh_hz = float(config.getdefault("device", "refresh_hz", default_hz))
+        self.board = Board(
+            formats=self.formats, offset_provider=self,
+            transport=transport, port=serial_port, baudrate=baudrate,
+            host=host, tcp_port=tcp_port, poll_period=1.0 / max(1.0, refresh_hz),
+        )
+
+        # Backward compat aliases — most KV files use app.servo / app.inputs / app.axes
+        self.servo = self.board.servo
+        self.inputs = list(self.board.inputs)
+        self.scales = list(self.board.inputs)  # backward compat alias
+        self.axes = list(self.board.axes)
+        # Keep the aliases in sync when the board resizes its input list to match the
+        # connected board's reported scale count (Board._apply_scale_count).
+        self.board.bind(inputs=self._sync_input_aliases)
+
+        self.els = ElsDispatcher(id_override="0")
+
+        import importlib.metadata
+        self.version = "v" + importlib.metadata.version("drdro-software")
+
+        self._apply_mouse_cursor()
+        self.formats.bind(hide_mouse_cursor=lambda *_: self._apply_mouse_cursor())
+
+        from dro.components.manager import Manager
+        self.manager = Manager()
+
+        # Start the RS-485 poll loop on the running asyncio loop (we run under async_run).
+        self.board.start()
+
+        # Approach beeper: audible half of the positioning aid (G2), driven off the axes' DTG.
+        from dro.utils.beeper import ApproachBeeper
+        self.beeper = ApproachBeeper(self)
+        self.beeper.start()
+
+        return self.manager
+
+    def _apply_mouse_cursor(self):
+        if self.formats.hide_mouse_cursor:
+            Config.set('graphics', 'show_cursor', '0')
+        else:
+            Config.set('graphics', 'show_cursor', '1')
+        from kivy.core.window import Window
+        Window.show_cursor = not self.formats.hide_mouse_cursor

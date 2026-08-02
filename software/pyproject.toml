@@ -1,0 +1,60 @@
+[project]
+name = "drdro-software"
+version = "1.7.0"
+description = "drDRO host software — Kivy DRO/controller UI for the drDRO rotary-controller board (RS485 line protocol)"
+authors = [
+    { name = "Stefano Bertelli", email = "stefano.bertelli@thinkalpha.io" }
+]
+requires-python = ">=3.10,<4.0"
+license = "GPL-3.0-or-later"
+readme = "README.md"
+dependencies = [
+    "cachetools>=5.5.0",
+    "certifi>=2024.0.0",
+    "keke>=0.1.4",
+    "kivy>=2.3.0",
+    "pyserial>=3.5",
+    "pydantic>=2.10.3",
+    "pyyaml>=6.0.2",
+    "nmcli>=1.5.0",
+    "aiohttp>=3.9.0",
+]
+
+[dependency-groups]
+dev = [
+    "coverage>=7.6.9",
+    "pytest>=8.3.4",
+    "python-semantic-release>=9.15.2",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["dro"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+# push to dev  -> next version as a BETA prerelease (vX.Y.Z-beta.N, GitHub prerelease)
+# push to main -> OFFICIAL stable release (vX.Y.Z)
+# Same tooling/flow as drdro-arch and drdro-firmware-f4. Stable release notes fold in the
+# beta changes (templates/.release_notes.md.j2).
+[tool.semantic_release]
+version_toml = ["pyproject.toml:project.version"]
+hvcs = "github"
+# After semantic-release stamps the new version into pyproject, refresh uv.lock so its
+# self-version tracks the release, then build; `assets` includes uv.lock in the release commit.
+build_command = "uv lock && uv build"
+assets = ["uv.lock"]
+
+[tool.semantic_release.branches.main]
+match = "main"
+prerelease = false
+
+[tool.semantic_release.branches.dev]
+match = "dev"
+prerelease = true
+prerelease_token = "beta"

@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# uv / virtualenv
+.venv/
+.python-version.local
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Kivy / runtime
+*.log
+
+# Per-user runtime config (board IP / transport are machine-specific, written by the app)
+config.ini
