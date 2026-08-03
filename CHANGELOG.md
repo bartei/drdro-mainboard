@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v1.3.0-beta.2 (2026-08-03)
+
+### Bug Fixes
+
+- **compat**: Treat PEP 440 and git-tag prerelease spellings as equal
+  ([`aaab481`](https://github.com/bartei/drdro-mainboard/commit/aaab481e47ece5459d86a49f1bf130876f568bc1))
+
+
 ## v1.3.0-beta.1 (2026-08-03)
 
 ### Bug Fixes
