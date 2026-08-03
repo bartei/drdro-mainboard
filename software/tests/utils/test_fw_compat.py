@@ -21,20 +21,20 @@ from dro.utils.fw_compat import (
 
 # ── parsing ──────────────────────────────────────────────────────────
 def test_parse_release():
-    assert parse_fw_version("v1.2.0") == (1, 2, 0, 1, 0)
-    assert parse_fw_version("1.2.0") == (1, 2, 0, 1, 0)
-    assert parse_fw_version("v1.12.3") == (1, 12, 3, 1, 0)
+    assert parse_fw_version("v1.2.0") == (1, 2, 0, 1, 0, 0)
+    assert parse_fw_version("1.2.0") == (1, 2, 0, 1, 0, 0)
+    assert parse_fw_version("v1.12.3") == (1, 12, 3, 1, 0, 0)
 
 
 def test_parse_prerelease():
-    assert parse_fw_version("v1.2.0-beta.1") == (1, 2, 0, 0, 1)
-    assert parse_fw_version("v1.2.0-rc.2") == (1, 2, 0, 0, 2)
+    assert parse_fw_version("v1.2.0-beta.1") == (1, 2, 0, 0, 1, 1)
+    assert parse_fw_version("v1.2.0-rc.2") == (1, 2, 0, 0, 2, 2)
 
 
 def test_parse_git_describe_suffix_ignored():
-    assert parse_fw_version("v1.2.0-3-g1234abc") == (1, 2, 0, 1, 0)
-    assert parse_fw_version("v1.2.0-3-g1234abc-dirty") == (1, 2, 0, 1, 0)
-    assert parse_fw_version("v1.2.0-beta.1-3-g1234abc") == (1, 2, 0, 0, 1)
+    assert parse_fw_version("v1.2.0-3-g1234abc") == (1, 2, 0, 1, 0, 0)
+    assert parse_fw_version("v1.2.0-3-g1234abc-dirty") == (1, 2, 0, 1, 0, 0)
+    assert parse_fw_version("v1.2.0-beta.1-3-g1234abc") == (1, 2, 0, 0, 1, 1)
 
 
 def test_parse_garbage_returns_none():
@@ -46,6 +46,47 @@ def test_parse_garbage_returns_none():
 
 def test_prerelease_sorts_before_its_release():
     assert parse_fw_version("v1.2.0-beta.1") < parse_fw_version("v1.2.0")
+
+
+def test_prerelease_phases_order_alpha_beta_rc():
+    assert (parse_fw_version("v1.2.0-alpha.9")
+            < parse_fw_version("v1.2.0-beta.1")
+            < parse_fw_version("v1.2.0-rc.1")
+            < parse_fw_version("v1.2.0"))
+
+
+# ── PEP 440 vs git-tag spelling ──────────────────────────────────────
+# The same release reaches the app two ways: the firmware reports the git tag
+# ("v1.3.0-beta.1"), the wheel reports PEP 440 ("1.3.0b1"). If these do not compare equal,
+# every prerelease looks like a mismatch — the banner nags forever AND
+# pending_firmware_update() throws away its own staged image as stale, so a beta never
+# flashes the board. Caught against a real v1.3.0-beta.1 release.
+def test_pep440_prerelease_equals_git_tag_spelling():
+    assert parse_fw_version("1.3.0b1") == parse_fw_version("v1.3.0-beta.1")
+    assert versions_match("v1.3.0-beta.1", "v1.3.0b1") is True
+    assert fw_update_required("v1.3.0-beta.1", "v1.3.0b1") is False
+
+
+def test_pep440_spellings_normalize_to_the_tag_form():
+    assert normalize_version("1.3.0b1") == "v1.3.0-beta.1"
+    assert normalize_version("1.3.0a2") == "v1.3.0-alpha.2"
+    assert normalize_version("1.3.0rc3") == "v1.3.0-rc.3"
+
+
+def test_pep440_alpha_and_rc_also_match_their_tags():
+    assert versions_match("v1.3.0-alpha.2", "1.3.0a2") is True
+    assert versions_match("v1.3.0-rc.3", "1.3.0rc3") is True
+
+
+def test_prerelease_still_ranks_below_its_release_across_spellings():
+    assert compare_versions("1.3.0b1", "v1.3.0") == BEHIND
+    assert compare_versions("v1.3.0", "1.3.0b1") == AHEAD
+
+
+def test_unknown_trailing_token_is_treated_as_a_release():
+    # Better to under-claim than invent an ordering for a token we don't know.
+    assert parse_fw_version("v1.2.0-nightly.4") == (1, 2, 0, 1, 0, 0)
+    assert normalize_version("v1.2.0-nightly.4") == "v1.2.0"
 
 
 # ── normalisation ────────────────────────────────────────────────────
