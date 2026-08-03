@@ -70,9 +70,13 @@ jobs:
       - name: Run host software tests
         working-directory: software
         env:
-          # No display on the runner: force SDL's dummy drivers and a mock GL backend so
-          # importing any UI module can't try to open a Window and abort the job.
+          # No display on the runner. tests/conftest.py sets these too (so a local Linux
+          # run behaves identically); they are repeated here to make the requirement
+          # visible at the workflow level. KIVY_WINDOW is the load-bearing one: the runner
+          # has libX11 without an X server, and Kivy's x11 provider otherwise wins over
+          # sdl2 and calls exit(102) with no output at all.
           KIVY_NO_ARGS: "1"
+          KIVY_WINDOW: sdl2
           SDL_VIDEODRIVER: dummy
           SDL_AUDIODRIVER: dummy
           KIVY_GL_BACKEND: mock
