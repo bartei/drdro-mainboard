@@ -1,6 +1,35 @@
 # CHANGELOG
 
 
+## v1.3.0-beta.1 (2026-08-03)
+
+### Bug Fixes
+
+- **tests**: Pin the Kivy window provider so headless runs can't exit(102)
+  ([`fd5e359`](https://github.com/bartei/drdro-mainboard/commit/fd5e359b433da76ac85da117ceddb181c7004c8f))
+
+- **tests**: Wait for accept() before dropping the mock board connection
+  ([`b08640a`](https://github.com/bartei/drdro-mainboard/commit/b08640a26a6422275232b5209a5d4593da788bc6))
+
+### Chores
+
+- **hardware**: Update board project file; remove H723 variant design notes
+  ([`4ed6759`](https://github.com/bartei/drdro-mainboard/commit/4ed6759ff717ab47c1a4e2f521bbf1c3715ec5d3))
+
+- **software**: Add drDRO host software — Kivy port with Ethernet transport
+  ([`e539b67`](https://github.com/bartei/drdro-mainboard/commit/e539b67091efeb1d515c2a923027dc1f214adbb4))
+
+### Continuous Integration
+
+- **release**: Surface host-test failures as annotations
+  ([`8830f8b`](https://github.com/bartei/drdro-mainboard/commit/8830f8b967db2692c5010840cca3e57955a71d82))
+
+### Features
+
+- **update**: Single-version stack releases with one-step updates
+  ([`6e24594`](https://github.com/bartei/drdro-mainboard/commit/6e24594c8ff1fcbf513d44d6a5ecc492fefd4e0f))
+
+
 ## v1.2.0 (2026-08-01)
 
 ### Features

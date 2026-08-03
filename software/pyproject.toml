@@ -3,7 +3,7 @@ name = "drdro-software"
 # Stamped by python-semantic-release from the monorepo root (one tag for the whole stack).
 # Reset from the standalone drdro-software-f4 stream (1.7.0) onto the monorepo stream at
 # consolidation — no installed base, so the renumber costs nothing.
-version = "1.2.0"
+version = "1.3.0-beta.1"
 description = "drDRO host software — Kivy DRO/controller UI for the drDRO rotary-controller board (RS485 line protocol)"
 authors = [
     { name = "Stefano Bertelli", email = "stefano.bertelli@thinkalpha.io" }
