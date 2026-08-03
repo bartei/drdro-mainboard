@@ -76,9 +76,19 @@ jobs:
           SDL_VIDEODRIVER: dummy
           SDL_AUDIODRIVER: dummy
           KIVY_GL_BACKEND: mock
+        # Failures are echoed back as ::error:: annotations, not just buried in the step
+        # log — the annotation is visible through the public API, so a red release can be
+        # diagnosed without downloading logs.
         run: |
-          uv sync
-          uv run pytest -q
+          set -o pipefail
+          if ! uv sync 2>&1 | tee /tmp/uv-sync.log; then
+            echo "::error::uv sync failed (rc=$?): $(tail -c 900 /tmp/uv-sync.log | tr '\n' ' ')"
+            exit 1
+          fi
+          if ! uv run pytest -q 2>&1 | tee /tmp/pytest.log; then
+            echo "::error::host tests failed (rc=$?): $(tail -c 1800 /tmp/pytest.log | tr '\n' ' ')"
+            exit 1
+          fi
 
       - name: Semantic release (version -> build firmware -> tag -> publish + assets)
         env:
