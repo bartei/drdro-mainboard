@@ -1,17 +1,24 @@
 name: Release
 
 # Semantic release (python-semantic-release, same tooling as the other drdro-* repos).
-# push to master -> OFFICIAL stable release (vX.Y.Z) — gated on the native test suite
+# push to master -> OFFICIAL stable release (vX.Y.Z) — gated on the test suites
 # push to dev    -> next version as a BETA prerelease (vX.Y.Z-beta.N, GitHub prerelease)
-# The firmware is built INSIDE `semantic-release version` (build_command in pyproject.toml)
-# so the binaries embed the exact released version (FW_VERSION -> app/bootloader support
-# scripts). Release notes fold beta changes into the stable release
-# (templates/.release_notes.md.j2). Assets staged in firmware/dist/:
-#   drdro-mainboard-app.{bin,hex,elf}          the application (.bin feeds dro_update.py,
-#                                              serial or --net — the automated update path)
+#
+# ONE VERSION FOR THE WHOLE STACK: a single tag versions firmware and host software. Both
+# are built INSIDE `semantic-release version` (build_command = tools/build-release.sh) so
+# the firmware binaries embed the exact released version (FW_VERSION -> app/bootloader
+# support scripts) and the host wheel carries it in its metadata. Release notes fold beta
+# changes into the stable release (templates/.release_notes.md.j2).
+#
+# Assets staged in firmware/dist/:
+#   drdro-mainboard-app.{bin,hex,elf}          the application (.bin feeds dro_update.py
+#                                              and the in-app updater — the automated path)
 #   drdro-mainboard-bootloader.{bin,hex,elf}   the IAP bootloader (ST-Link only)
 #   drdro-mainboard-factory.hex                merged bootloader+app for blank boards
-#   SHA256SUMS.txt
+#   SHA256SUMS.txt                             covers ALL assets, firmware and software
+# Assets staged in software/dist/:
+#   drdro-software.zip                         host software: the software/ tree plus a
+#                                              prebuilt wheel (installed by the update page)
 
 on:
   push:
@@ -47,14 +54,31 @@ jobs:
           key: pio-${{ runner.os }}-${{ hashFiles('firmware/app/platformio.ini', 'firmware/bootloader/platformio.ini') }}
           restore-keys: pio-${{ runner.os }}-
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
       - name: Install PlatformIO + semantic-release
         run: |
           pip install --upgrade platformio
           pipx install python-semantic-release
 
-      # The release gate: no green tests, no release.
-      - name: Run native unit tests
+      # The release gate: no green tests, no release. Both halves ship under one version,
+      # so both suites gate the tag.
+      - name: Run firmware native unit tests
         run: pio test -d firmware/app -e native
+
+      - name: Run host software tests
+        working-directory: software
+        env:
+          # No display on the runner: force SDL's dummy drivers and a mock GL backend so
+          # importing any UI module can't try to open a Window and abort the job.
+          KIVY_NO_ARGS: "1"
+          SDL_VIDEODRIVER: dummy
+          SDL_AUDIODRIVER: dummy
+          KIVY_GL_BACKEND: mock
+        run: |
+          uv sync
+          uv run pytest -q
 
       - name: Semantic release (version -> build firmware -> tag -> publish + assets)
         env:
@@ -76,7 +100,7 @@ jobs:
               echo
               echo '### Assets'
               echo '```'
-              ls -lh firmware/dist/
+              ls -lh firmware/dist/ software/dist/
               cat firmware/dist/SHA256SUMS.txt
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"

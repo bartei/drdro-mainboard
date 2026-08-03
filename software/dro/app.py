@@ -63,6 +63,10 @@ class MainApp(App):
 
     version = StringProperty()
 
+    # Progress text for a staged firmware update being applied after a stack update reboot.
+    # Empty on a normal boot.
+    update_status = StringProperty("")
+
     def __init__(self, **kv):
         super().__init__(**kv)
         self.beeper = None  # ApproachBeeper, created in build() once axes exist
@@ -135,8 +139,9 @@ class MainApp(App):
 
         self.els = ElsDispatcher(id_override="0")
 
-        import importlib.metadata
-        self.version = "v" + importlib.metadata.version("drdro-software")
+        # One version for the whole stack — the same string the board must report.
+        from dro.utils.version import installed_version
+        self.version = installed_version()
 
         self._apply_mouse_cursor()
         self.formats.bind(hide_mouse_cursor=lambda *_: self._apply_mouse_cursor())
@@ -147,12 +152,37 @@ class MainApp(App):
         # Start the RS-485 poll loop on the running asyncio loop (we run under async_run).
         self.board.start()
 
+        # Second half of a single-step stack update: if the previous run installed new
+        # software and staged a matching firmware image, flash it now from local disk.
+        # No-op on a normal boot. See dro/comms/pending_update.py.
+        self._start_pending_update()
+
         # Approach beeper: audible half of the positioning aid (G2), driven off the axes' DTG.
         from dro.utils.beeper import ApproachBeeper
         self.beeper = ApproachBeeper(self)
         self.beeper.start()
 
         return self.manager
+
+    def _start_pending_update(self):
+        """Schedule the staged-firmware flash, if one is pending, on the asyncio loop."""
+        import asyncio
+
+        from dro.comms.pending_update import PendingUpdateController
+
+        self.pending_update = PendingUpdateController(
+            self.board, on_status=self._set_update_status,
+        )
+        try:
+            asyncio.get_event_loop().create_task(self.pending_update.run())
+        except RuntimeError:                       # pragma: no cover — no loop outside async_run
+            log.error("No running asyncio loop; staged firmware update not scheduled")
+
+    def _set_update_status(self, message: str):
+        """Surface staged-update progress on the home screen banner area."""
+        self.update_status = message or ""
+        if message:
+            log.info("update: %s", message)
 
     def _apply_mouse_cursor(self):
         if self.formats.hide_mouse_cursor:

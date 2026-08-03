@@ -1,18 +1,32 @@
-"""Firmware screen — view/select banks, reboot the board, and flash a firmware version
-fetched from GitHub releases over the RS-485 line (YMODEM into the inactive bank, then boot).
+"""Advanced firmware screen — bank control, manual flashing, diagnostics.
+
+NOT the normal update path. Under the single-version design the user updates the whole
+stack from the Update screen with one button; firmware follows the software automatically.
+What remains here is what a developer or a recovery situation needs:
+
+  * which version / bank the board is actually running
+  * forcing the boot bank and rebooting the firmware
+  * flashing a local .bin by hand (including the image staged by a stack update)
+  * the raw activity log
+
+There is deliberately no "pick a firmware version from GitHub" list any more: firmware
+version is not independently selectable — it is whatever the installed software's release
+carries. Offering a picker here would let a user create exactly the mismatch the design
+exists to prevent.
 """
 import asyncio
 import os
-import tempfile
 
 from kivy.clock import mainthread
 from kivy.logger import Logger
-from kivy.properties import BooleanProperty, NumericProperty, StringProperty, ListProperty
+from kivy.properties import BooleanProperty, NumericProperty, StringProperty
 from kivy.uix.screenmanager import Screen
 
-from dro.comms.updater import FirmwareUpdater
-from dro.profiles import ProfileManager
+from dro.comms.firmware_apply import apply_firmware
+from dro.comms.stack_update import Paths, clear_pending, pending_firmware_update
+from dro.comms.updater import FirmwareUpdater, UpdaterError
 from dro.utils.kv_loader import load_kv
+from dro.utils.version import installed_version
 
 log = Logger.getChild(__name__)
 load_kv(__file__)
@@ -20,21 +34,23 @@ load_kv(__file__)
 
 class FirmwareScreen(Screen):
     current_version = StringProperty("—")
+    software_version = StringProperty("")
     active_bank_text = StringProperty("—")
     boot_bank = StringProperty("")
-    include_prerelease = BooleanProperty(False)
-    version_options = ListProperty()
-    selected_tag = StringProperty("")
     progress = NumericProperty(0.0)
     busy = BooleanProperty(False)
     status_text = StringProperty("")
+    staged_version = StringProperty("")        # a staged image waiting to be flashed, if any
 
-    def __init__(self, **kv):
+    # Pure wiring, and Screen.__init__ needs a real Window — untestable under the headless
+    # mock-GL backend the suite runs on. Every method it sets up is covered individually.
+    def __init__(self, paths=None, **kv):  # pragma: no cover
         from dro.app import MainApp
         self.app: MainApp = MainApp.get_running_app()
         super().__init__(**kv)
-        self._releases: list[dict] = []
+        self.paths = paths or Paths()
         self._updater: FirmwareUpdater | None = None
+        self.software_version = installed_version()
 
     @property
     def updater(self) -> FirmwareUpdater:
@@ -52,16 +68,26 @@ class FirmwareScreen(Screen):
     def _set_progress(self, frac: float):
         self.progress = max(0.0, min(1.0, float(frac)))
 
+    @mainthread
+    def _set_busy(self, value: bool):
+        self.busy = bool(value)
+
     def _spawn(self, coro):
         try:
             asyncio.get_event_loop().create_task(coro)
-        except RuntimeError:
+        except RuntimeError:                     # pragma: no cover — no loop outside the app
             log.error("no running asyncio loop for firmware task")
             coro.close()
 
     # ── lifecycle ────────────────────────────────────────────────────
     def on_pre_enter(self, *args):
+        self.software_version = installed_version()
+        self._refresh_staged()
         self.refresh_status()
+
+    def _refresh_staged(self):
+        pending = pending_firmware_update(self.paths, self.software_version)
+        self.staged_version = pending.version if pending else ""
 
     def refresh_status(self):
         self._spawn(self._refresh_status())
@@ -102,78 +128,44 @@ class FirmwareScreen(Screen):
         await self._refresh_status()
         self._status("Firmware rebooted")
 
-    # ── releases ─────────────────────────────────────────────────────
-    def refresh_releases(self):
-        self._status("Fetching releases from GitHub…")
-        self._spawn(self._refresh_releases())
-
-    async def _refresh_releases(self):
-        try:
-            rels = await self.updater.list_releases(include_prerelease=self.include_prerelease)
-        except Exception as e:                       # noqa: BLE001 — surface any network/parse error
-            self._status(f"Failed to fetch releases: {e}")
-            return
-        self._releases = rels
-        self.version_options = [r["tag"] for r in rels]
-        self._status(f"Found {len(rels)} release(s)")
-        if rels and not self.selected_tag:
-            self.selected_tag = rels[0]["tag"]
-
-    def select_version(self, tag: str):
-        self.selected_tag = tag
-
-    # ── install ──────────────────────────────────────────────────────
-    def install_selected(self):
+    # ── manual flash ─────────────────────────────────────────────────
+    def flash_staged(self):
+        """Flash the image a stack update staged but did not finish applying."""
         if self.busy:
             return
-        rel = next((r for r in self._releases if r["tag"] == self.selected_tag), None)
-        if rel is None:
-            self._status("Select a version first (Refresh versions)")
+        pending = pending_firmware_update(self.paths, self.software_version)
+        if pending is None:
+            self._status("No staged firmware image to flash")
             return
-        self._spawn(self._install(rel))
+        self._spawn(self._flash(str(pending.firmware_path), pending.version,
+                                clear_staged=True))
 
-    async def _install(self, rel: dict):
-        self.busy = True
+    def flash_path(self, path: str):
+        """Flash an arbitrary local .bin — the recovery path."""
+        if self.busy:
+            return
+        if not path or not os.path.exists(path):
+            self._status(f"No such file: {path}")
+            return
+        self._spawn(self._flash(path, ""))
+
+    async def _flash(self, bin_path: str, version: str, clear_staged: bool = False):
+        self._set_busy(True)
         self._set_progress(0.0)
         try:
-            # Back up the board settings before touching the firmware: a timestamped
-            # profile for manual rollback, plus an in-memory snapshot to auto-restore
-            # anything a settings-layout change wipes out.
-            profiles = ProfileManager(self.app.board)
-            snapshot = await profiles.snapshot_board()
-            backup = await profiles.backup_current(
-                note=f"automatic backup before firmware update to {rel['tag']}"
+            await apply_firmware(
+                self.app.board, bin_path, version=version,
+                on_status=self._status, on_progress=self._set_progress,
             )
-            self._status(f"Settings backed up to profile '{backup.stem}'")
-
-            self._status(f"Downloading {rel['tag']} ({rel['size']} bytes)…")
-            tmp = os.path.join(tempfile.gettempdir(), f"drdro-{rel['tag']}.bin")
-            await self.updater.download_asset(rel["url"], tmp, on_progress=self._set_progress)
-            self._set_progress(0.0)
-            self._status("Flashing over RS-485…")
-            res = await self.updater.install(
-                tmp, on_progress=self._set_progress, on_status=self._status,
-            )
-            self._set_progress(1.0)
-            # The poll loop reconnects a moment after boot; wait for it, then refresh.
-            for _ in range(15):
-                if self.app.board.connected:
-                    break
-                await asyncio.sleep(0.3)
+            # A staged image flashed by hand is spent — drop the marker, or the next boot
+            # would pick it up again. (The startup controller would notice the versions
+            # already agree and discard it, but leaving it is needless ambiguity.)
+            if clear_staged:
+                clear_pending(self.paths)
             await self._refresh_status()
-
-            # Auto-restore any board settings the update wiped (e.g. a settings-layout
-            # change falling back to defaults). No-op when everything survived.
-            if self.app.board.connected and snapshot:
-                restored = await profiles.restore_board_settings(snapshot)
-                if restored:
-                    self._status(f"Restored {restored} board setting(s) lost in the update")
-                else:
-                    self._status("Board settings verified — nothing lost in the update")
-
-            self._status(f"Update complete (bank {res.get('bank')}, version {res.get('version')})")
-        except Exception as e:                        # noqa: BLE001 — report any failure to the UI
-            log.exception("firmware update failed")
-            self._status(f"Update FAILED: {e}")
+            self._refresh_staged()
+        except (UpdaterError, OSError) as e:
+            log.exception("firmware flash failed")
+            self._status(f"Flash FAILED: {e}")
         finally:
-            self.busy = False
+            self._set_busy(False)

@@ -33,7 +33,8 @@ from dro.dispatchers.input import InputDispatcher
 from dro.dispatchers.saving_dispatcher import SETTINGS_FOLDER, read_settings
 from dro.dispatchers.servo import ServoDispatcher
 from dro.utils.constants import SCALES_COUNT
-from dro.utils.fw_compat import fw_update_required
+from dro.utils.fw_compat import fw_update_required, mismatch_message
+from dro.utils.version import installed_version
 
 from kivy.logger import Logger
 log = Logger.getChild(__name__)
@@ -61,7 +62,11 @@ class Board(EventDispatcher):
     update_tick = NumericProperty(0)
     scale_count = NumericProperty(SCALES_COUNT)      # inputs the connected board reports (scales.count)
     firmware_version = StringProperty("")            # cached on (re)connect (Stats screen, banner)
-    firmware_update_required = BooleanProperty(False)  # firmware older than COMPANION_FW_VERSION
+    # One version for the whole stack: the board's firmware must EQUAL the installed
+    # software version. Anything else (older or newer) is an incoherent stack the user is
+    # asked to realign — see dro.utils.fw_compat.
+    firmware_update_required = BooleanProperty(False)
+    firmware_mismatch = StringProperty("")           # user-facing reason, "" when coherent
     blink = BooleanProperty(False)
     servo = ObjectProperty(None, allownone=True)
     inputs = ListProperty()
@@ -69,11 +74,14 @@ class Board(EventDispatcher):
 
     def __init__(self, formats, offset_provider, *, transport="serial",
                  port="/dev/serial0", baudrate=115200, host="", tcp_port=5555,
-                 poll_period=1.0 / 50, save_debounce=0.75, **kv):
+                 poll_period=1.0 / 50, save_debounce=0.75, software_version=None, **kv):
         super().__init__(**kv)
         self.formats = formats
         self.offset_provider = offset_provider
         self.fast_data_values = dict()
+        # The version this stack is supposed to be on; the board must report the same.
+        # Injectable so tests can drive the coherence rule without touching package metadata.
+        self.software_version = software_version or installed_version()
 
         # One line protocol, two pipes: RS-485 (pyserial) or Ethernet (TCP). A blank tcp host
         # stays disconnected until the user sets the board IP in the Connection setup page.
@@ -247,10 +255,20 @@ class Board(EventDispatcher):
         v = await self.connection.command("version")
         if v.crc_ok and v.text("version"):
             self.firmware_version = v.text("version")
-        self.firmware_update_required = fw_update_required(self.firmware_version)
+        self._refresh_version_coherence()
+
+    def _refresh_version_coherence(self) -> None:
+        """Compare the board's firmware against this software's own version.
+
+        Kept separate from the settings refresh so the startup pending-update check and the
+        tests can re-evaluate coherence without a round-trip to the board.
+        """
+        self.firmware_update_required = fw_update_required(
+            self.firmware_version, self.software_version)
+        self.firmware_mismatch = mismatch_message(
+            self.firmware_version, self.software_version)
         if self.firmware_update_required:
-            log.warning("Firmware %s is older than the companion version this software "
-                        "needs — prompting for an update", self.firmware_version)
+            log.warning("Version mismatch: %s", self.firmware_mismatch)
 
     def _apply_scale_count(self, n: int) -> None:
         """Grow/shrink the InputDispatcher list to the board's reported scale count.

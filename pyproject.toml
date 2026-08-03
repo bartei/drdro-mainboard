@@ -1,8 +1,16 @@
-# drdro-mainboard is not a Python project — this file exists only to configure
-# python-semantic-release (the same release tooling as the other drdro-* repos; see
-# .github/workflows/release.yml). Versioning is tag-only: no source file carries the
-# version, the firmware binaries embed it via FW_VERSION at build time
-# (firmware/app/support/fw_version.py, firmware/bootloader/support/bl_version.py).
+# drdro-mainboard is not a Python project itself — this file configures
+# python-semantic-release for the WHOLE monorepo (see .github/workflows/release.yml).
+#
+# ONE VERSION FOR THE WHOLE STACK. A single tag versions firmware *and* host software:
+# the firmware binaries embed it via FW_VERSION at build time (firmware/app/support/
+# fw_version.py, firmware/bootloader/support/bl_version.py) and the host package carries
+# it in software/pyproject.toml (stamped below via version_toml). The host software
+# refuses to run happily against a board on a different version — see
+# software/dro/utils/fw_compat.py and docs/update_system_todo.md for the rationale.
+#
+# Consequence, accepted deliberately: a software-only change still bumps and reflashes
+# the firmware, whose binary differs only in the embedded version string. Dual-bank +
+# rollback makes that safe.
 #
 # push to master/main -> OFFICIAL stable release (vX.Y.Z) when there are releasable commits
 # push to dev         -> next version as a BETA prerelease (vX.Y.Z-beta.N)
@@ -12,12 +20,18 @@
 allow_zero_version = false
 hvcs = "github"
 tag_format = "v{version}"
-# Runs inside `semantic-release version` with NEW_VERSION exported: builds app + bootloader
-# with FW_VERSION baked in and stages the release assets into firmware/dist/ for
-# `semantic-release publish`. Asset names (drdro-mainboard-app.bin, ...) are the contract
-# with the firmware updater tooling — do not rename them. They deliberately differ from the
-# old board's drdro-app.bin so an updater can never cross-flash the two boards.
-build_command = "firmware/tools/build-release.sh"
+# The host package version is the release version — no independent software stream.
+version_toml = ["software/pyproject.toml:project.version"]
+# uv.lock embeds drdro-software's own version; the build command refreshes it after the
+# stamp, and `assets` carries it into the release commit alongside the stamped pyproject.
+assets = ["software/uv.lock"]
+# Runs inside `semantic-release version` with NEW_VERSION exported: builds the firmware
+# (app + bootloader, FW_VERSION baked in) into firmware/dist/ and the host software
+# artifacts into software/dist/, for `semantic-release publish` to upload.
+# Asset names are the contract with the updater tooling — do not rename them. The firmware
+# names deliberately differ from the old board's drdro-app.bin so an updater can never
+# cross-flash the two boards.
+build_command = "tools/build-release.sh"
 
 [tool.semantic_release.changelog]
 # Regenerate the whole CHANGELOG.md from history on every release. The psr-10
@@ -36,5 +50,5 @@ prerelease = true
 prerelease_token = "beta"
 
 [tool.semantic_release.publish]
-dist_glob_patterns = ["firmware/dist/*"]
+dist_glob_patterns = ["firmware/dist/*", "software/dist/*"]
 upload_to_vcs_release = true

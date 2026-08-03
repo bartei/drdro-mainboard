@@ -1,6 +1,9 @@
 [project]
 name = "drdro-software"
-version = "1.7.0"
+# Stamped by python-semantic-release from the monorepo root (one tag for the whole stack).
+# Reset from the standalone drdro-software-f4 stream (1.7.0) onto the monorepo stream at
+# consolidation — no installed base, so the renumber costs nothing.
+version = "1.2.0"
 description = "drDRO host software — Kivy DRO/controller UI for the drDRO rotary-controller board (RS485 line protocol)"
 authors = [
     { name = "Stefano Bertelli", email = "stefano.bertelli@thinkalpha.io" }
@@ -38,23 +41,22 @@ packages = ["dro"]
 pythonpath = ["."]
 testpaths = ["tests"]
 
-# push to dev  -> next version as a BETA prerelease (vX.Y.Z-beta.N, GitHub prerelease)
-# push to main -> OFFICIAL stable release (vX.Y.Z)
-# Same tooling/flow as drdro-arch and drdro-firmware-f4. Stable release notes fold in the
-# beta changes (templates/.release_notes.md.j2).
-[tool.semantic_release]
-version_toml = ["pyproject.toml:project.version"]
-hvcs = "github"
-# After semantic-release stamps the new version into pyproject, refresh uv.lock so its
-# self-version tracks the release, then build; `assets` includes uv.lock in the release commit.
-build_command = "uv lock && uv build"
-assets = ["uv.lock"]
+[tool.coverage.run]
+source = ["dro"]
+branch = true
 
-[tool.semantic_release.branches.main]
-match = "main"
-prerelease = false
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
 
-[tool.semantic_release.branches.dev]
-match = "dev"
-prerelease = true
-prerelease_token = "beta"
+# NOTE: releases are cut from the MONOREPO ROOT, not here. The root pyproject.toml owns
+# python-semantic-release for the whole stack and stamps `project.version` above via
+# version_toml — one tag versions firmware and software together. Do not re-add a
+# [tool.semantic_release] section here; two configs would produce two version streams,
+# which is exactly what the single-version design exists to prevent.

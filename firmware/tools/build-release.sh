@@ -14,6 +14,12 @@
 # images must never be pushed to the old board by an updater matching on name.
 #
 # Run from the repo root or firmware/: paths are resolved relative to this script.
+#
+# NOTE: this builds the FIRMWARE half only. Releases go through tools/build-release.sh at
+# the repo root, which calls this script, then builds the host software and REPLACES the
+# firmware-only dist/SHA256SUMS.txt written here with a combined manifest covering every
+# release asset. Running this script directly (a firmware-only local build) is still fine
+# and leaves the firmware-only manifest in place.
 set -euo pipefail
 
 if [ -n "${NEW_VERSION:-}" ]; then
