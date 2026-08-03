@@ -9,6 +9,9 @@
 > coverage on the new modules (270 tests green). Phase 7 is cross-repo (`drdro-arch`)
 > and Phase 8 needs a real release plus hardware — both still open. Items marked ⚑
 > could not be proven from this repo.
+>
+> **Released for validation:** `v1.3.0-beta.1` / `v1.3.0-beta.2` on `dev`. Remaining
+> open items all need physical hardware or a stable-tag decision.
 
 ---
 
@@ -54,8 +57,8 @@ itself out of the mismatch. Treat it as a frozen ABI and document it in `updater
 - [x] Add `version_toml = ["software/pyproject.toml:project.version"]` to `[tool.semantic_release]` in root `pyproject.toml`.
 - [x] Reset `software/pyproject.toml` version from `1.7.0` onto the monorepo stream (no installed base — just renumber).
 - [x] Update the root `pyproject.toml` header comment: it currently claims "no source file carries the version", which stops being true.
-- [ ] Confirm `semantic-release version` writes and commits the software version bump alongside the changelog commit. ⚑ needs a real release run
-- [ ] Confirm `importlib.metadata.version("drdro-software")` reports the release tag after a wheel install. ⚑ wheel builds as `drdro_software-1.2.0`; an actual install was not exercised
+- [x] Confirm `semantic-release version` writes and commits the software version bump alongside the changelog commit. Verified on v1.3.0-beta.1: `software/pyproject.toml` and `software/uv.lock` both stamped in the release commit.
+- [x] Confirm `importlib.metadata.version("drdro-software")` reports the release tag after a wheel install. **Caught a real bug:** the wheel carries the PEP 440 spelling (`1.3.0b1`) while the firmware reports the git tag (`v1.3.0-beta.1`); `fw_compat` now reconciles the two.
 - [x] Decide and document the version string format shown in the UI (`v1.3.0` vs `1.3.0`) and normalise both sides to it.
 
 ## Phase 2 — Release artifacts (CI)
@@ -137,8 +140,8 @@ Everything else moves behind an advanced section.
 
 ## Phase 8 — Validation
 
-- [ ] Dry run on `dev`: confirm a beta release publishes all assets with the expected names and a valid `SHA256SUMS.txt`.
-- [ ] Verify the client resolves and downloads both assets from a beta tag.
+- [x] Dry run on `dev`: confirm a beta release publishes all assets with the expected names and a valid `SHA256SUMS.txt`. Verified on v1.3.0-beta.1 and -beta.2.
+- [x] Verify the client resolves and downloads both assets from a beta tag. Real `ReleaseClient` run against the live release: both assets downloaded, both checksums verified, bundled wheel resolved, staged marker survives the version comparison.
 - [ ] End-to-end on hardware: mismatched unit → single-button update → both versions match, no manual steps.
 - [ ] Failure injection: kill the network mid-download; kill power between software install and firmware flash; confirm recovery.
 - [ ] Only after the above is green, cut a stable tag from `master`.
