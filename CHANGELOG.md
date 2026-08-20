@@ -1,6 +1,19 @@
 # CHANGELOG
 
 
+## v1.3.0-beta.3 (2026-08-20)
+
+### Bug Fixes
+
+- Use ferrite beads with higher stock availability on jlcpcb. fix speed reporting
+  ([`5cc9490`](https://github.com/bartei/drdro-mainboard/commit/5cc9490ae9a505446319f95aa2d34cb9a4776cb9))
+
+### Documentation
+
+- **update**: Record beta validation results in the tracker
+  ([`e7353cf`](https://github.com/bartei/drdro-mainboard/commit/e7353cf87e7776846d4aa16fd7e5fcab3b6a1de8))
+
+
 ## v1.3.0-beta.2 (2026-08-03)
 
 ### Bug Fixes
