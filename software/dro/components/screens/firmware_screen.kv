@@ -1,7 +1,9 @@
 #: import RetroProgressBar dro.components.widgets.progress_bar.RetroProgressBar
 #: import ButtonItem dro.components.widgets.button_item
-#: import BooleanItem dro.components.widgets.boolean_item
-#: import DropDownItem dro.components.widgets.dropdown_item
+
+# ADVANCED page — reached from Update > Advanced, not from the main navigation.
+# No release picker here on purpose: firmware version follows the installed software's
+# release, so offering an independent choice would only let a user build a mismatch.
 
 <BankToggle@ToggleButton>:
   group: "bootbank"
@@ -14,7 +16,7 @@
     padding: 10
 
     ScreenHeader:
-      text: "Firmware"
+      text: "Firmware (advanced)"
 
     ScrollView:
       do_scroll_x: False
@@ -27,17 +29,38 @@
 
         # ── Status ──────────────────────────────────────────────
         TitleItem:
-          name: "Firmware status"
+          name: "Versions"
         ButtonItem:
           height: 60
-          name: "Current firmware version"
+          name: "Board firmware"
           value: root.current_version
           on_release: root.refresh_status()
+        ButtonItem:
+          height: 60
+          name: "Installed software"
+          value: root.software_version
         ButtonItem:
           height: 60
           name: "Currently active bank"
           value: root.active_bank_text
           on_release: root.refresh_status()
+
+        # ── Staged image (left by an interrupted stack update) ──
+        TitleItem:
+          name: "Staged update"
+        ButtonItem:
+          height: 60
+          name: "Firmware staged for"
+          value: root.staged_version if root.staged_version else "none"
+        BoxLayout:
+          size_hint_y: None
+          height: 60
+          padding: 4
+          Button:
+            text: "Flash Staged Image" if not root.busy else "Flashing…"
+            disabled: root.busy or not root.staged_version
+            font_size: app.formats.font_size
+            on_release: root.flash_staged()
 
         # ── Boot selection ──────────────────────────────────────
         TitleItem:
@@ -59,10 +82,12 @@
             BankToggle:
               text: "Bank 0"
               state: "down" if root.boot_bank == "0" else "normal"
+              disabled: root.busy
               on_release: root.set_bank("0")
             BankToggle:
               text: "Bank 1"
               state: "down" if root.boot_bank == "1" else "normal"
+              disabled: root.busy
               on_release: root.set_bank("1")
         ButtonItem:
           height: 60
@@ -70,38 +95,9 @@
           value: "Reset"
           on_release: root.do_reset()
 
-        # ── Install from GitHub ─────────────────────────────────
-        TitleItem:
-          name: "Install from GitHub"
-        ButtonItem:
-          height: 60
-          name: "Refresh available versions"
-          value: "Refresh"
-          on_release: root.refresh_releases()
-        BooleanItem:
-          height: 60
-          name: "Allow pre-releases"
-          value: root.include_prerelease
-          on_value: root.include_prerelease = self.value
-        DropDownItem:
-          height: 60
-          name: "Available firmware"
-          options: root.version_options
-          value: root.selected_tag
-          on_value: root.select_version(self.value)
-        BoxLayout:
-          size_hint_y: None
-          height: 60
-          padding: 4
-          Button:
-            text: "Install Selected Firmware" if not root.busy else "Updating…"
-            disabled: root.busy or not root.selected_tag
-            font_size: app.formats.font_size
-            on_release: root.install_selected()
-
         # ── Progress ────────────────────────────────────────────
         TitleItem:
-          name: "Upload progress"
+          name: "Flash progress"
         RetroProgressBar:
           size_hint_y: None
           height: 30

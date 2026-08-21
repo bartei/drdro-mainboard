@@ -1,69 +1,66 @@
-#: import StringItem dro.components.widgets.string_item
-#: import NumberItem dro.components.widgets.number_item
-#: import BooleanItem dro.components.widgets.boolean_item
+#: import RetroProgressBar dro.components.widgets.progress_bar.RetroProgressBar
+
+# User-facing update page: what you have, what's available, one button, progress.
+# Everything a developer needs (raw logs, version pickers, bank control, manual firmware
+# flashing) lives on the advanced firmware screen — deliberately not here.
 
 <UpdateScreen>:
   formats: app.formats
   BoxLayout:
     orientation: "vertical"
     padding: 10
+    spacing: 4
+
     ScreenHeader:
-      text: "Software Update"
+      text: "Update"
 
-    ScrollView:
-      do_scroll_x: False
-      do_scroll_y: True
-      GridLayout:
-        id: grid_layout
-        cols: 1
-        spacing: 1
-        size_hint_y: None
-        height: self.minimum_height
+    ButtonItem:
+      height: 60
+      name: "Installed version"
+      value: root.installed_version
+      help_file: "software_update.md"
 
-        ButtonItem:
-          height: 60
-          name: "Currently installed release"
-          value: root.current_release
-          help_file: "software_update.md"
-        ButtonItem:
-          height: 60
-          name: "Refresh available releases"
-          value: "Refresh"
-          help_file: "software_update.md"
-          on_release:
-            root.schedule_refresh_releases()
+    ButtonItem:
+      height: 60
+      name: "Available version"
+      value: root.available_version if root.available_version else "checking…"
+      help_file: "software_update.md"
+      on_release: root.check_for_updates()
 
-        BooleanItem:
-          height: 60
-          name: "Allow installation of experimental versions"
-          value: root.allow_experimental
-          help_file: "software_update.md"
-          on_value: root.allow_experimental = self.value
+    # Single action for the whole stack — software and firmware move together.
+    Button:
+      size_hint_y: None
+      height: 80
+      font_size: app.formats.font_size * 1.2
+      disabled: root.busy or not root.update_available
+      text:
+        ("Updating…" if root.busy else \
+        ("Update to " + root.available_version if root.update_available else "Up to date"))
+      on_release: root.start_update()
 
-        DropDownItem:
-          height: 60
-          name: "Available releases"
-          options: root.releases
-          value: root.selected_release
-          help_file: "software_update.md"
-          on_value: root.selected_release = self.value
-        BoxLayout:
-          height: 60
-          size_hint_y: None
-          orientation: "horizontal"
-          Button:
-            text: "Install Selected Release"
-            disabled: not root.enable_update_button
-            on_release: root.install_release()
-          Button:
-            text: "Exit Application"
-            on_release: app.stop()
+    RetroProgressBar:
+      size_hint_y: None
+      height: 30
+      max: 1.0
+      value: root.progress
+      fill_color: app.formats.display_color
 
-        TitleItem:
-          name: "Update Status"
-        TextInput:
-          size_hint_y: None
-          height: 200
-          readonly: True
-          multiline: True
-          text: root.status
+    Label:
+      size_hint_y: None
+      height: 60
+      font_size: app.formats.font_size
+      color: app.formats.display_color
+      text: root.status
+      text_size: self.width, None
+      halign: "center"
+      valign: "middle"
+
+    Widget:                                   # push the advanced link to the bottom
+
+    Button:
+      size_hint_y: None
+      height: 50
+      font_size: app.formats.font_size * 0.8
+      text: "Advanced…"
+      disabled: root.busy
+      on_release: root.goto_advanced()

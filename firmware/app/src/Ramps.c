@@ -345,11 +345,14 @@ _Noreturn void updateSpeedTask(void *argument) {
     servoCycles = (uint16_t) newPeriod;
 
     for (int i = 0; i < SCALES_COUNT; i++) {
-      // Update scale/spindle speed value
+      /* Update scale/spindle speed value, in steps per second:
+       *   speed = delta * 1000ms / (sample period in ms)
+       * The period is updateSpeedTaskTicks osDelay ticks; HAL_GetTickFreq() is the
+       * SysTick *period* in ms (HAL_TICK_FREQ_1KHZ == 1U), not a frequency in Hz. */
       deltaPositionAndError(
         rampsData->shared.scales[i].position,
-        updateSpeedTaskTicks,
-        HAL_GetTickFreq(),
+        1000,
+        updateSpeedTaskTicks * (int32_t) HAL_GetTickFreq(),
         &rampsData->scalesSpeed[i]
       );
       rampsData->shared.scales[i].speed = rampsData->scalesSpeed[i].scaledDelta;

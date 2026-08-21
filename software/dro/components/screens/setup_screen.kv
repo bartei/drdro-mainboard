@@ -44,9 +44,9 @@
       SetupButton:
         text: "Update"
         on_release: app.manager.goto("update")
-      SetupButton:
-        text: "Firmware"
-        on_release: app.manager.goto("firmware")
+      # No "Firmware" entry: software and firmware update together from the Update page.
+      # The advanced firmware screen (banks, manual flashing, logs) is still reachable —
+      # via Update > Advanced — but it is not a normal destination.
       SetupButton:
         text: "System"
         on_release: app.manager.goto("system")

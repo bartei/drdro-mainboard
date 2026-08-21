@@ -1,198 +1,150 @@
+"""Update screen — one button brings the WHOLE stack to one release.
+
+Software and firmware ship under a single monorepo tag, so there is nothing here for the
+user to sequence or choose: the page shows what is installed, what is available, and an
+Update button. Everything developer-facing (raw command output, version pickers, bank
+selection, manual firmware flashing) lives on the advanced firmware screen instead.
+
+Flow — see dro.comms.stack_update for why the ordering matters:
+    download + verify both assets -> stage firmware -> install software -> reboot
+    (after reboot) flash the staged firmware, which needs no network.
+"""
 import asyncio
-import importlib.metadata
 import os
-import ssl
 import subprocess
 
-import aiohttp
-import certifi
-from kivy.clock import Clock
+from kivy.clock import Clock, mainthread
 from kivy.logger import Logger
-from kivy.properties import ListProperty, StringProperty, BooleanProperty
-from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.button import Button
-from kivy.uix.label import Label
-from kivy.uix.popup import Popup
+from kivy.properties import BooleanProperty, NumericProperty, StringProperty
 from kivy.uix.screenmanager import Screen
 
+from dro.comms.release import ReleaseClient, ReleaseError
+from dro.comms.stack_update import Paths, StackUpdateError, StackUpdater
+from dro.utils.fw_compat import normalize_version
 from dro.utils.kv_loader import load_kv
+from dro.utils.version import installed_version
 
 log = Logger.getChild(__name__)
 load_kv(__file__)
 
-DEV_RELEASE = "dev (experimental)"
-
-# This application's own repository — SOFTWARE updates. (Firmware OTA is separate:
-# dro/comms/updater.py points at the drdro-firmware-f4 repo.)
-GITHUB_REPO = "bartei/drdro-software-f4"
-RELEASES_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
-# Git checkout + venv baked into the drdro-arch appliance image (see drdro-arch/build.sh
-# and overlay/opt/drdro/app-run.sh — the app runs as root from this folder).
-PROJECT_FOLDER = "/opt/drdro/app"
-VENV_PIP = f"{PROJECT_FOLDER}/.venv/bin/pip"
-
-# Verify TLS against certifi's CA bundle — same rationale as dro/comms/updater.py
-# (system CA store is unreliable on some hosts).
-_SSL_CTX = ssl.create_default_context(cafile=certifi.where())
+REBOOT_COMMAND = ["reboot"]
 
 
 class UpdateScreen(Screen):
-    releases = ListProperty([])
-    selected_release = StringProperty("")
-    current_release = StringProperty("v" + importlib.metadata.version("drdro-software"))
-    enable_update_button = BooleanProperty(False)
-    allow_experimental = BooleanProperty(False)
+    """Minimal user-facing update page. Advanced controls live on the firmware screen."""
+
+    installed_version = StringProperty("")
+    available_version = StringProperty("")
     status = StringProperty("")
+    progress = NumericProperty(0.0)
+    busy = BooleanProperty(False)
+    update_available = BooleanProperty(False)
+    allow_prerelease = BooleanProperty(False)
 
-    def __init__(self, **kv):
+    # Pure wiring, and Screen.__init__ needs a real Window — untestable under the headless
+    # mock-GL backend the suite runs on. Every method it sets up is covered individually.
+    def __init__(self, release_client=None, paths=None, reboot=None, **kv):  # pragma: no cover
+        from dro.app import MainApp
+        self.app: MainApp = MainApp.get_running_app()
         super().__init__(**kv)
-        self._official: list[str] = []
-        self._prereleases: list[str] = []
-        self.schedule_refresh_releases()
+        self.releases = release_client or ReleaseClient()
+        self.paths = paths or Paths()
+        self._reboot = reboot or self._do_reboot
+        self._latest = None
+        self.installed_version = installed_version()
+
+    # ── lifecycle ────────────────────────────────────────────────────
+    def on_pre_enter(self, *args):
+        """Refresh automatically — a manual "check for updates" step is developer ergonomics."""
         self.status = ""
+        self.progress = 0.0
+        self.installed_version = installed_version()
+        if not self.busy:
+            self.check_for_updates()
 
-    def schedule_refresh_releases(self):
-        log.info("User wants to install a different release!")
-        Clock.schedule_once(lambda dt: asyncio.ensure_future(self.refresh_releases(dt)))
+    # ── status helpers (safe from any thread) ────────────────────────
+    @mainthread
+    def _set_status(self, msg: str):
+        log.info("update: %s", msg)
+        self.status = msg
 
-    async def refresh_releases(self, dt):
-        self.update_status("Retrieve all the releases from Github")
+    @mainthread
+    def _set_progress(self, frac: float):
+        self.progress = max(0.0, min(1.0, float(frac)))
+
+    def _spawn(self, coro):
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(RELEASES_URL, ssl=_SSL_CTX) as response:
-                    if response.status != 200:
-                        text = await response.text()
-                        log.error(f"Failed to fetch releases: {response.status} - {text}")
-                        return
+            asyncio.get_event_loop().create_task(coro)
+        except RuntimeError:                       # pragma: no cover — no loop outside the app
+            log.error("no running asyncio loop for update task")
+            coro.close()
 
-                    releases = await response.json()
+    # ── check ────────────────────────────────────────────────────────
+    def check_for_updates(self):
+        self._spawn(self._check_for_updates())
 
-            # Stable releases and beta prereleases (filter first, then limit)
-            self._official = [item['tag_name'] for item in releases if not item['prerelease']][:10]
-            self._prereleases = [item['tag_name'] for item in releases if item['prerelease']][:5]
-            self._set_releases()
-            self.selected_release = self.releases[0] if self.releases else ""
-        except Exception as e:
-            self.update_status(str(e))
-
-    def _set_releases(self):
-        """Rebuild the dropdown: stable releases, plus betas + the dev branch when experimental."""
-        if self.allow_experimental:
-            self.releases = self._official + self._prereleases + [DEV_RELEASE]
-        else:
-            self.releases = self._official
-
-    def on_selected_release(self, instance, value):
-        log.info(f"Selected release: {self.selected_release}")
-        if value != "" and value != self.current_release:
-            self.enable_update_button = True
-        else:
-            self.enable_update_button = False
-
-    def update_status(self, status: str):
-        self.status = self.status + status + "\n"
-
-    def on_allow_experimental(self, instance, value):
-        self._set_releases()
-        # A now-hidden selection (beta or dev entry) falls back to the newest stable.
-        if not value and self.selected_release not in self.releases:
-            self.selected_release = self.releases[0] if self.releases else ""
-
-    def install_release(self):
-        log.info("User wants to install a different release!")
-        if self.selected_release == DEV_RELEASE:
-            self._confirm_dev_install()
-        else:
-            self._do_install()
-
-    def _confirm_dev_install(self):
-        content = BoxLayout(orientation="vertical", spacing=10, padding=10)
-
-        content.add_widget(Label(
-            text=(
-                "Warning: You are about to install an experimental version.\n\n"
-                "- Development version may be unstable or incomplete\n"
-                "- Features may not work as expected\n"
-                "- Data or settings could be corrupted\n"
-                "- You may need to reinstall a stable version to recover"
-            ),
-            halign="left",
-            valign="top",
-            text_size=(None, None),
-        ))
-
-        buttons = BoxLayout(orientation="horizontal", spacing=10, size_hint_y=None, height=60)
-        btn_cancel = Button(text="Cancel", font_size=22)
-        btn_confirm = Button(text="Install Anyway", font_size=22)
-        buttons.add_widget(btn_cancel)
-        buttons.add_widget(btn_confirm)
-        content.add_widget(buttons)
-
-        popup = Popup(
-            title="Warning: Experimental Version",
-            content=content,
-            size_hint=(0.7, 0.5),
-            auto_dismiss=False,
-        )
-
-        btn_cancel.bind(on_release=popup.dismiss)
-        btn_confirm.bind(on_release=lambda _: (popup.dismiss(), self._do_install()))
-
-        popup.open()
-
-    def _do_install(self):
-        Clock.schedule_once(lambda dt: asyncio.ensure_future(self.perform_install(dt)))
-
-    async def perform_install(self, dt):
-        self.update_status(f"Performing installation of a new release: {self.current_release} -> {self.selected_release}")
-
-        if not os.path.isdir(PROJECT_FOLDER):
-            self.update_status(f"Project folder not found at the expected location: {PROJECT_FOLDER}")
+    async def _check_for_updates(self):
+        self._set_status("Checking for updates…")
+        try:
+            latest = await self.releases.latest(include_prerelease=self.allow_prerelease)
+        except ReleaseError as e:
+            self._set_status(f"Could not check for updates: {e}")
             return
+        if latest is None:
+            self._set_status("No releases available")
+            self._set_available(None)
+            return
+        self._set_available(latest)
 
-        self.update_status(f"Found project folder at: {PROJECT_FOLDER}")
-        os.chdir(PROJECT_FOLDER)
+    @mainthread
+    def _set_available(self, release):
+        self._latest = release
+        if release is None:
+            self.available_version = "—"
+            self.update_available = False
+            return
+        self.available_version = release.version
+        same = normalize_version(release.version) == normalize_version(self.installed_version)
+        self.update_available = not same
+        self.status = "Up to date" if same else f"{release.version} is available"
 
-        # Install with the app's own venv pip (app-run.sh activates it, but be explicit).
-        pip = VENV_PIP if os.path.exists(VENV_PIP) else "pip"
-        if self.selected_release == DEV_RELEASE:
-            commands = [
-                "git remote set-branches origin '*'",
-                "git fetch --all",
-                "git checkout dev",
-                "git pull origin dev",
-                f"{pip} install .",
-                "reboot",
-            ]
-        else:
-            commands = [
-                "git fetch --all --tags",
-                f"git checkout tags/{self.selected_release}",
-                f"{pip} install .",
-                "reboot",
-            ]
+    # ── update ───────────────────────────────────────────────────────
+    def start_update(self):
+        if self.busy or self._latest is None:
+            return
+        self.busy = True
+        self._spawn(self._run_update())
 
-        for c in commands:
-            self.update_status(f"run: {c}")
-            p = subprocess.Popen(
-                c,
-                shell=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
+    async def _run_update(self):
+        updater = StackUpdater(
+            self.releases,
+            paths=self.paths,
+            on_status=self._set_status,
+            on_progress=self._set_progress,
+        )
+        try:
+            await updater.apply(self._latest)
+        except (ReleaseError, StackUpdateError) as e:
+            self._set_status(f"Update failed: {e}")
+            self._set_busy(False)
+            return
+        self._set_status("Restarting…")
+        # Give the UI one frame to paint the final status before the box goes down.
+        Clock.schedule_once(lambda dt: self._reboot(), 1.0)
 
-            while p.poll() is None:
-                await asyncio.sleep(1)
+    @mainthread
+    def _set_busy(self, value: bool):
+        self.busy = bool(value)
 
-            output = p.stdout.read().decode()
-            log.info(output)
-            self.update_status(f"return code: {p.returncode}")
-            self.update_status(f"output: {output}")
+    def _do_reboot(self):
+        """Reboot the appliance so the new software is what comes back up."""
+        try:
+            subprocess.Popen(REBOOT_COMMAND)
+        except OSError as e:
+            log.error(f"Reboot failed: {e}")
+            self._set_status(f"Please restart manually: {e}")
+            self._set_busy(False)
 
-            if p.stderr is not None:
-                error = p.stderr.read().decode()
-                log.error(output)
-                self.update_status(f"err: {error}")
-
-            if p.returncode != 0:
-                return
+    # ── navigation ───────────────────────────────────────────────────
+    def goto_advanced(self):
+        self.app.manager.goto("firmware")

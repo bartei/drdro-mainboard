@@ -55,7 +55,7 @@ typedef struct {
 typedef struct {
   TIM_HandleTypeDef *timerHandle;
   int32_t position;
-  int32_t speed;
+  int32_t speed;          /* encoder steps per second (updateSpeedTask, RO) */
   int32_t syncRatioNum, syncRatioDen;
   uint16_t syncEnable;
   uint16_t filterValue;   /* encoder input-capture filter, 0..SCALES_FILTER_MAX */

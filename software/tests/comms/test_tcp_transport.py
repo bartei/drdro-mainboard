@@ -8,6 +8,7 @@ talks RS-485 talks Ethernet with only the byte pipe swapped, including the drop/
 import asyncio
 import socket
 import threading
+import time
 
 from dro.comms.protocol_client import ProtocolClient, xor8
 from dro.comms.tcp_transport import TcpTransport
@@ -87,8 +88,19 @@ class MockBoardServer:
         except OSError:
             pass
 
-    def drop_current(self):
-        """Force-close the active client connection (simulates the board dropping the link)."""
+    def drop_current(self, timeout=2.0):
+        """Force-close the active client connection (simulates the board dropping the link).
+
+        Waits for the serve thread to actually ``accept()`` first. ``create_connection``
+        returns as soon as the kernel completes the handshake, which can happen before the
+        thread picks the connection off the backlog — so without this wait ``_active`` may
+        still be None and the "drop" silently closes nothing. That made
+        ``test_transport_raises_on_closed_socket`` pass or fail purely on thread scheduling
+        (it passed on Windows, failed on Linux).
+        """
+        deadline = time.monotonic() + timeout
+        while self._active is None and time.monotonic() < deadline:
+            time.sleep(0.005)
         c = self._active
         if c is not None:
             try:
@@ -264,7 +276,6 @@ def test_transport_raises_on_closed_socket():
     srv = MockBoardServer(board_responder())
     t = TcpTransport("127.0.0.1", srv.port, timeout=0.2)
     srv.drop_current()
-    import time
     time.sleep(0.1)
     raised = False
     try:

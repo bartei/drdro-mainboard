@@ -1,46 +1,66 @@
-Software Update
-===============
+Update
+======
 
-Manage application updates directly from the DRO interface.
+Keeps the DRO up to date. One button updates everything.
+
+The software running on this screen and the firmware running on the
+board are released together and always carry the **same version
+number**. Updating brings both to the same release, so the two halves
+can never drift apart.
 
 Fields
 ------
 
-Currently Installed Release
-^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Shows the version currently running. This is read-only.
+Installed Version
+^^^^^^^^^^^^^^^^^
+The version currently running. Read-only.
 
-Refresh Available Releases
-^^^^^^^^^^^^^^^^^^^^^^^^^^
-Fetches the latest release list from GitHub. Requires an active
-internet connection.
+Available Version
+^^^^^^^^^^^^^^^^^
+The newest release published online. Checked automatically whenever
+you open this page; tap it to check again. Requires an internet
+connection.
 
-Allow Installation of Experimental Versions
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-When enabled, pre-release and development builds appear in the
-available releases list. These may contain new features but are
-less tested.
+Update
+^^^^^^
+Downloads and installs the release shown above — software **and**
+firmware — then restarts. The button is disabled when you are already
+up to date.
 
-- **OFF (default):** Only stable, tagged releases are shown.
-- **ON:** Also lists beta pre-releases (vX.Y.Z-beta.N) and the
-  "dev (experimental)" branch build.
+What happens when you press Update
+----------------------------------
 
-Available Releases
-^^^^^^^^^^^^^^^^^^
-A dropdown of versions available for installation. Select the
-desired version before clicking Install.
+1. Both the software and the firmware are downloaded and checked for
+   corruption.
+2. The firmware image is saved to the DRO's own storage.
+3. The new software is installed.
+4. The DRO restarts.
+5. On the way back up, the board is updated from the saved firmware
+   image. This step needs no internet connection.
 
-Install Selected Release
-^^^^^^^^^^^^^^^^^^^^^^^^
-Downloads and installs the selected version. The application
-will need to be restarted after installation.
+Nothing is installed until **both** downloads have finished and passed
+their integrity check, so losing the network partway through leaves the
+DRO exactly as it was.
+
+Version mismatch warning
+------------------------
+
+If the board's firmware version does not match the installed software
+version, an orange banner appears on the home screen. Tap it to come
+here and update. The warning appears whether the board is older *or*
+newer than the software — both mean the two halves are out of step.
+
+This can happen if a board is swapped in from another machine, or if a
+previous update was interrupted. Running the update resolves it.
 
 Notes
 -----
 
-- Requires an internet connection to fetch and install updates
-- The update process may take a few minutes depending on your
-  connection speed
-- Installation progress and any errors are shown in the status
-  area below
-- Use "Exit Application" to restart after a successful update
+- An internet connection is needed to download an update, but not to
+  finish applying one after the restart.
+- If the board update does not complete, it is retried automatically
+  the next time the DRO starts. The board keeps a working copy of its
+  previous firmware and stays usable in the meantime.
+- **Advanced…** opens firmware bank selection, manual flashing and the
+  activity log. Those are diagnostic and recovery tools — the normal
+  update path never needs them.

@@ -8,29 +8,28 @@ ported from tools/dro_update.py):
   4. (boot) `bank <bank>`   -> select it as the active bank (persisted)
   5. (boot) `boot`          -> copy active bank -> Exec, jump to the new app
 
-Available versions are fetched from the firmware repo's GitHub releases (the `drdro-app.bin`
-asset). The flash flow takes exclusive ownership of the serial bus: the caller pauses the
-board poll loop (Board.pause) and the whole sequence runs under the client's bus lock via
-ProtocolClient.run_blocking. Progress/status are reported through callbacks (the UI wraps
-them with @mainthread).
+Release resolution lives in `dro.comms.release` — firmware and host software ship under a
+single monorepo tag, so this module no longer talks to GitHub itself; it is handed a local
+`.bin` that has already been downloaded and checksum-verified. The flash flow takes
+exclusive ownership of the serial bus: the caller pauses the board poll loop (Board.pause)
+and the whole sequence runs under the client's bus lock via ProtocolClient.run_blocking.
+Progress/status are reported through callbacks (the UI wraps them with @mainthread).
+
+FROZEN INTERFACE — do not break compatibility here.
+    New software must always be able to drive OLDER firmware through
+    `update` -> bootloader -> `info`/`flash`/`bank`/`boot` -> YMODEM.
+
+    Under the single-version design, a version mismatch is resolved by the *new* software
+    flashing the *old* board. If a protocol change ever makes new software unable to talk
+    to an older bootloader, a mismatched unit can never update itself out of the mismatch
+    and needs an ST-Link to recover. Treat the sequence above as a stable ABI: extend it,
+    never redefine it.
 """
 from __future__ import annotations
 
-import ssl
 import time
 
-import aiohttp
-import certifi
-
 from dro.comms.ymodem import ymodem_send
-
-# Verify TLS against certifi's CA bundle — robust across platforms (notably NixOS, where
-# Python doesn't pick up the system CA store automatically).
-_SSL_CTX = ssl.create_default_context(cafile=certifi.where())
-
-GITHUB_REPO = "bartei/drdro-firmware-f4"
-APP_ASSET = "drdro-app.bin"
-RELEASES_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
 
 
 class UpdaterError(Exception):
@@ -129,48 +128,7 @@ class FirmwareUpdater:
             time.sleep(0.1)
             self.board.resume()
 
-    # ---- GitHub releases ----
-    async def list_releases(self, include_prerelease: bool = False) -> list[dict]:
-        async with aiohttp.ClientSession() as s:
-            async with s.get(RELEASES_URL, ssl=_SSL_CTX,
-                             headers={"Accept": "application/vnd.github+json"}) as r:
-                r.raise_for_status()
-                data = await r.json()
-        out = []
-        for rel in data:
-            if rel.get("prerelease") and not include_prerelease:
-                continue
-            assets = rel.get("assets", [])
-            asset = next((a for a in assets if a["name"] == APP_ASSET), None)
-            if asset is None:
-                asset = next((a for a in assets
-                              if a["name"].endswith(".bin") and "app" in a["name"].lower()), None)
-            if asset is None:
-                continue
-            out.append({
-                "tag": rel["tag_name"],
-                "name": rel.get("name") or rel["tag_name"],
-                "prerelease": bool(rel.get("prerelease")),
-                "url": asset["browser_download_url"],
-                "size": asset["size"],
-            })
-        return out
-
-    async def download_asset(self, url: str, dest: str, on_progress=None) -> str:
-        async with aiohttp.ClientSession() as s:
-            async with s.get(url, ssl=_SSL_CTX) as r:
-                r.raise_for_status()
-                total = int(r.headers.get("Content-Length", 0))
-                got = 0
-                with open(dest, "wb") as f:
-                    async for chunk in r.content.iter_chunked(8192):
-                        f.write(chunk)
-                        got += len(chunk)
-                        if on_progress and total:
-                            on_progress(got / total)
-        return dest
-
-    # ---- install (download already done; bin_path is local) ----
+    # ---- install (download already done; bin_path is local and verified) ----
     async def install(self, bin_path: str, bank: int | None = None,
                        on_progress=None, on_status=None) -> dict:
         """Flash bin_path into a bank and boot it. Pauses the poll loop for exclusive bus use."""

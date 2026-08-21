@@ -1,6 +1,56 @@
 # CHANGELOG
 
 
+## v1.3.0-beta.3 (2026-08-20)
+
+### Bug Fixes
+
+- Use ferrite beads with higher stock availability on jlcpcb. fix speed reporting
+  ([`5cc9490`](https://github.com/bartei/drdro-mainboard/commit/5cc9490ae9a505446319f95aa2d34cb9a4776cb9))
+
+### Documentation
+
+- **update**: Record beta validation results in the tracker
+  ([`e7353cf`](https://github.com/bartei/drdro-mainboard/commit/e7353cf87e7776846d4aa16fd7e5fcab3b6a1de8))
+
+
+## v1.3.0-beta.2 (2026-08-03)
+
+### Bug Fixes
+
+- **compat**: Treat PEP 440 and git-tag prerelease spellings as equal
+  ([`aaab481`](https://github.com/bartei/drdro-mainboard/commit/aaab481e47ece5459d86a49f1bf130876f568bc1))
+
+
+## v1.3.0-beta.1 (2026-08-03)
+
+### Bug Fixes
+
+- **tests**: Pin the Kivy window provider so headless runs can't exit(102)
+  ([`fd5e359`](https://github.com/bartei/drdro-mainboard/commit/fd5e359b433da76ac85da117ceddb181c7004c8f))
+
+- **tests**: Wait for accept() before dropping the mock board connection
+  ([`b08640a`](https://github.com/bartei/drdro-mainboard/commit/b08640a26a6422275232b5209a5d4593da788bc6))
+
+### Chores
+
+- **hardware**: Update board project file; remove H723 variant design notes
+  ([`4ed6759`](https://github.com/bartei/drdro-mainboard/commit/4ed6759ff717ab47c1a4e2f521bbf1c3715ec5d3))
+
+- **software**: Add drDRO host software — Kivy port with Ethernet transport
+  ([`e539b67`](https://github.com/bartei/drdro-mainboard/commit/e539b67091efeb1d515c2a923027dc1f214adbb4))
+
+### Continuous Integration
+
+- **release**: Surface host-test failures as annotations
+  ([`8830f8b`](https://github.com/bartei/drdro-mainboard/commit/8830f8b967db2692c5010840cca3e57955a71d82))
+
+### Features
+
+- **update**: Single-version stack releases with one-step updates
+  ([`6e24594`](https://github.com/bartei/drdro-mainboard/commit/6e24594c8ff1fcbf513d44d6a5ecc492fefd4e0f))
+
+
 ## v1.2.0 (2026-08-01)
 
 ### Features
