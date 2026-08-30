@@ -1,6 +1,19 @@
 # CHANGELOG
 
 
+## v1.3.1-beta.2 (2026-08-30)
+
+### Bug Fixes
+
+- **net**: Bound the PHY/DHCP hunt and retry W5500 bring-up
+  ([`0ea99f9`](https://github.com/bartei/drdro-mainboard/commit/0ea99f9a70b65af13ddbd1cbacb8b60043f299f3))
+
+### Chores
+
+- **software**: Drop the host software and its release plumbing
+  ([`a0ed2ae`](https://github.com/bartei/drdro-mainboard/commit/a0ed2aec404bd9c3f33cb8c93806d8fe7f754d90))
+
+
 ## v1.3.1-beta.1 (2026-08-30)
 
 
