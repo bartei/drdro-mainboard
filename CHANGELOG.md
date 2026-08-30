@@ -1,7 +1,21 @@
 # CHANGELOG
 
 
+## v1.3.1-beta.1 (2026-08-30)
+
+
 ## v1.3.0 (2026-08-21)
+
+### Bug Fixes
+
+- **net**: Bound the PHY/DHCP hunt and ignore the phantom link on an open port
+  ([`5218a90`](https://github.com/bartei/drdro-mainboard/commit/5218a90a84416d2356223a2869c732a850ce0f5f))
+
+- **protocol**: Bound the shared CLI lock so a stalled peer can't wedge serial
+  ([`f436e00`](https://github.com/bartei/drdro-mainboard/commit/f436e00d92d59274e681baee44a2d8431489e9d3))
+
+- **rs485**: Serialize bus writers and bound the TC wait
+  ([`b01f66f`](https://github.com/bartei/drdro-mainboard/commit/b01f66fbbf9605e8a9189442cd27d871bec3cec2))
 
 
 ## v1.3.0-beta.3 (2026-08-20)
