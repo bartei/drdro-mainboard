@@ -216,6 +216,11 @@ static const PhyMode_t phyModes[] = {
  * (or seem to) but never yield an offer. */
 #define NET_SETTLE_AFTER (2U * PHY_MODE_COUNT)
 
+/* Bring-up attempts before declaring the W5500 absent. Each one re-runs the hard
+ * reset, so a chip whose power-on ramp simply outlasted the STM32's gets another
+ * chance instead of being written off for the whole power cycle. */
+#define NET_CHIP_INIT_TRIES 5U
+
 static uint8_t phyModeIdx;
 
 /**
@@ -519,14 +524,39 @@ static void NetTask(void *argument)
 
   MX_SPI2_Init();
 
-  if (NetChipInit() != 0)
+  /* Bring-up is retried, because it used to be a one-shot verdict with permanent
+   * consequences: a single VERSIONR miss parked this task for the life of the power
+   * cycle, leaving Ethernet silently dead. Observed on the bench — net.state=1
+   * (CHIP_ERROR), net.mac stuck at 00:00:00:00:00:00 because MacFromDeviceId() is
+   * only reached on the success path — while the very next reset brought the chip
+   * up perfectly ("W5500: ready, MAC 02:00:32:17:39:32"). That is a transient, and
+   * a transient should not cost the feature until someone power-cycles the board. */
   {
-    SetNetState(NET_STATE_CHIP_ERROR);
-    /* Nothing further is possible without the chip; park here so the LED keeps
-     * signalling the fault. */
-    for (;;)
+    uint8_t attempt;
+    for (attempt = 1U; ; attempt++)
     {
-      osDelay(1000);
+      if (NetChipInit() == 0)
+      {
+        if (attempt > 1U)
+        {
+          DebugPrintf("W5500: came up on attempt %u\r\n", attempt);
+        }
+        break;
+      }
+      if (attempt >= NET_CHIP_INIT_TRIES)
+      {
+        DebugPrintf("W5500: no response after %u attempts — Ethernet disabled\r\n",
+                    attempt);
+        SetNetState(NET_STATE_CHIP_ERROR);
+        /* Nothing further is possible without the chip; park here so the LED keeps
+         * signalling the fault. */
+        for (;;)
+        {
+          osDelay(1000);
+        }
+      }
+      DebugPrintf("W5500: init attempt %u failed, retrying\r\n", attempt);
+      osDelay(250);
     }
   }
 
