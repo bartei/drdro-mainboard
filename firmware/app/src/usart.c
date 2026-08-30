@@ -10,6 +10,46 @@ DMA_HandleTypeDef  hdma_usart1_rx;
 /* Signalled by HAL_UART_TxCpltCallback (TC: last stop bit on the wire). */
 static osSemaphoreId_t sTxDone = NULL;
 
+/* The RS-485 line has more than one writer: the protocol task answers commands
+ * through Rs485Send(), and other tasks (Net) log through DebugPrint(). Both
+ * drive the same huart1 and the same DE pin, so without a lock they collide:
+ * whichever finishes first drops DE while the other is still transmitting, the
+ * frame is truncated mid-byte and the bus floats — the host then reads the tail
+ * of the message as line noise. The second writer's HAL_UART_Transmit* also
+ * just returns HAL_BUSY, so its message vanishes silently.
+ *
+ * One mutex makes the line single-writer. Held across the whole DE-assert ->
+ * transmit -> TC -> DE-release sequence, which is what "owning the bus" means
+ * on half duplex. */
+static osMutexId_t sTxMutex = NULL;
+
+/* No-ops before the scheduler is running: MX_USART1_UART_Init and the banner in
+ * main() print before osKernelStart, when there is nothing to contend with. */
+static void TxLock(void)
+{
+  if (sTxMutex != NULL && osKernelGetState() == osKernelRunning)
+  {
+    osMutexAcquire(sTxMutex, osWaitForever);
+  }
+}
+
+static void TxUnlock(void)
+{
+  if (sTxMutex != NULL && osKernelGetState() == osKernelRunning)
+  {
+    osMutexRelease(sTxMutex);
+  }
+}
+
+/* Wall-clock budget for `len` bytes to clear the shifter, plus slack for
+ * scheduling jitter. Used to bound the wait for TC so a lost completion can
+ * never park the caller forever. */
+static uint32_t TxTimeoutMs(uint16_t len)
+{
+  uint32_t baud = (huart1.Init.BaudRate != 0U) ? huart1.Init.BaudRate : 115200U;
+  return 20U + (((uint32_t)len * 10U * 1000U) / baud);   /* 10 bits/byte, 8N1 */
+}
+
 /* Circular RX ring, drained by the protocol task (~1 ms cadence). DMA moves
  * every received byte here with ZERO per-byte CPU — the byte-interrupt scheme
  * it replaces needed ~5-10 us of HAL+RTOS work per byte and collapsed above
@@ -115,18 +155,39 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef *uartHandle)
 void Rs485Send(const uint8_t *data, uint16_t len)
 {
   if (len == 0U) return;
+
+  TxLock();
+
   if (sTxDone == NULL) {                 /* protocol not started yet — fall back */
     HAL_GPIO_WritePin(RS485_DE_GPIO_Port, RS485_DE_Pin, GPIO_PIN_SET);
     HAL_UART_Transmit(&huart1, (uint8_t *)data, len, 1000U);
     HAL_GPIO_WritePin(RS485_DE_GPIO_Port, RS485_DE_Pin, GPIO_PIN_RESET);
+    TxUnlock();
     return;
   }
+
+  /* Drop a completion left over by a previous transmit that timed out below,
+   * so this send waits for its own TC and not a stale token. */
+  (void)osSemaphoreAcquire(sTxDone, 0U);
+
   HAL_GPIO_WritePin(RS485_DE_GPIO_Port, RS485_DE_Pin, GPIO_PIN_SET);
   if (HAL_UART_Transmit_IT(&huart1, (uint8_t *)data, len) != HAL_OK) {
     HAL_GPIO_WritePin(RS485_DE_GPIO_Port, RS485_DE_Pin, GPIO_PIN_RESET);
+    TxUnlock();
     return;
   }
-  osSemaphoreAcquire(sTxDone, osWaitForever);
+
+  /* Bounded, never osWaitForever. If TC is lost — the handle was disturbed, or
+   * HAL_UART_ErrorCallback aborted the peripheral on the noise a collision had
+   * already caused — an unbounded wait parks the protocol task permanently and
+   * the board answers nothing until it is power-cycled, while other tasks carry
+   * on logging. That failure was observed on the bench; this is the guard. */
+  if (osSemaphoreAcquire(sTxDone, TxTimeoutMs(len)) != osOK) {
+    HAL_UART_AbortTransmit(&huart1);
+    HAL_GPIO_WritePin(RS485_DE_GPIO_Port, RS485_DE_Pin, GPIO_PIN_RESET);
+  }
+
+  TxUnlock();
 }
 
 /* TC interrupt: drop DE first (bounded turnaround), then release the sender. */
@@ -142,6 +203,7 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 void Rs485TxInit(void)
 {
   if (sTxDone == NULL) sTxDone = osSemaphoreNew(1U, 0U, NULL);
+  if (sTxMutex == NULL) sTxMutex = osMutexNew(NULL);
 }
 
 /* Start (or restart) circular-DMA reception into the ring. */
@@ -183,6 +245,12 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 /**
  * Blocking debug transmit. HAL_UART_Transmit() returns only once TC is set, so
  * releasing DE immediately afterwards cannot truncate the frame.
+ *
+ * Takes the same lock as Rs485Send(): this is called from running tasks (Net
+ * logs link/DHCP transitions here), not only from early boot, so it has to take
+ * its turn on the bus rather than cut into a protocol response. Holding the
+ * line costs at most one message time — ~11 ms for a full 128-byte buffer at
+ * 115200 — which delays a status reply but can no longer corrupt one.
  */
 void DebugPrint(const char *s)
 {
@@ -192,9 +260,11 @@ void DebugPrint(const char *s)
     return;
   }
 
+  TxLock();
   HAL_GPIO_WritePin(RS485_DE_GPIO_Port, RS485_DE_Pin, GPIO_PIN_SET);
   HAL_UART_Transmit(&huart1, (uint8_t *)s, (uint16_t)len, 1000U);
   HAL_GPIO_WritePin(RS485_DE_GPIO_Port, RS485_DE_Pin, GPIO_PIN_RESET);
+  TxUnlock();
 }
 
 void DebugPrintf(const char *fmt, ...)
