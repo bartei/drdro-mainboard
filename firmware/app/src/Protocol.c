@@ -490,10 +490,28 @@ static const cmd_t kCommands[] = {
 };
 
 /* ---- line processing ----------------------------------------------------- */
+/* Cap on how long one CLI will wait for the other to finish a command. A command
+ * normally holds the lock for a few milliseconds, so this is ~20x the expected
+ * worst case — generous enough never to fire in normal use, short enough that the
+ * host's 250 ms status-poll timeout still has margin to spare. */
+#define PROTO_LOCK_TIMEOUT_MS 100U
+
 proto_action_t ProtocolProcessLine(proto_io_t *io, char *line) {
   char work[PROTOCOL_LINE_MAX + 1];
 
-  if (sProtoMutex) osMutexAcquire(sProtoMutex, osWaitForever);
+  /* Two CLIs share this parser: the RS-485 protocol task and the TCP NetCli task.
+   * Waiting forever here means a peer that stalls mid-command on the network side
+   * takes the serial link down with it — the board goes silent to its host while
+   * the rest of the firmware carries on, and only a power cycle recovers it.
+   * Bounded instead: answer "busy" and let the host retry on its next poll. The
+   * resp* helpers only touch per-connection `io` state, so emitting this reply
+   * without the lock is safe. */
+  if (sProtoMutex && osMutexAcquire(sProtoMutex, PROTO_LOCK_TIMEOUT_MS) != osOK) {
+    respBegin(io);
+    respError(io, "busy");
+    respEnd(io);
+    return PROTO_ACT_NONE;
+  }
   sAction = PROTO_ACT_NONE;
   respBegin(io);
 
