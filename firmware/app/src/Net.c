@@ -211,6 +211,11 @@ static const PhyMode_t phyModes[] = {
 };
 #define PHY_MODE_COUNT (sizeof(phyModes) / sizeof(phyModes[0]))
 
+/* Failed cycles tolerated before the hunt gives up and goes quiet. Two full
+ * sweeps: one covers the modes that never link, the other the modes that link
+ * (or seem to) but never yield an offer. */
+#define NET_SETTLE_AFTER (2U * PHY_MODE_COUNT)
+
 static uint8_t phyModeIdx;
 
 /**
@@ -500,6 +505,17 @@ static void NetTask(void *argument)
   uint32_t linkDownSince = 0U; /* for the link-down PHY watchdog below        */
   int      dhcpStarted = 0;
   int8_t   linkWasUp = 0;
+  /* Progress counter for the bring-up hunt: bumped by every PHY mode advance and
+   * every DHCP cycle that got no offer, and reset ONLY by success (a lease, or a
+   * static address applied). It deliberately does NOT reset on a bare link-up.
+   *
+   * An unconnected W5500 port under auto-negotiation reports a phantom link —
+   * measured on this board as PHYCFGR 0xFB, "link up, 100M, half", with no cable
+   * attached — and then flaps. Resetting on link-up therefore zeroes the counter
+   * every few seconds on precisely the hardware this gate exists for, and the
+   * hunt runs forever. Only an address actually obtained proves the link is real. */
+  uint8_t  failedCycles = 0U;
+  uint8_t  settled = 0U;       /* tried everything, got nothing — stop hunting   */
 
   MX_SPI2_Init();
 
@@ -556,6 +572,8 @@ static void NetTask(void *argument)
         memcpy(sShared->net.mask, netInfo.sn, 4);
         memcpy(sShared->net.gw,   netInfo.gw, 4);
         staticApplied = 1U;
+        failedCycles = 0U;
+        settled = 0U;
         DebugPrintf("ETH: static %u.%u.%u.%u\r\n",
                     netInfo.ip[0], netInfo.ip[1], netInfo.ip[2], netInfo.ip[3]);
         SetNetState(NET_STATE_LEASED);
@@ -595,7 +613,18 @@ static void NetTask(void *argument)
     /* PHY watchdog. A manually forced mode the link partner cannot do (10M FULL
      * on most switches) leaves the link permanently down — and with no link the
      * DHCP path never runs, so it never "fails" and the sweep would never
-     * advance. Without this the state machine wedges in the first bad mode. */
+     * advance. Without this the state machine wedges in the first bad mode.
+     *
+     * The sweep is bounded. If a full pass over every mode finds no link, the
+     * conclusion is that nothing is plugged in — the overwhelmingly common case
+     * for a unit wired only to the RS-485 host — and there is nothing left to
+     * try. Continuing to cycle modes every 6 s forever gains nothing and costs
+     * a log line each time on a bus that is also carrying the host protocol.
+     * So: settle on auto-negotiation, say so once, and go quiet. Recovery does not
+     * depend on the link bit — which lies on an open port — but on an address
+     * actually being obtained: the DHCP block below still runs whenever the PHY
+     * reports a link, just silently and on a 60 s leash, and a lease is what
+     * clears `settled` and restores full-rate hunting. */
     if (!linkUp)
     {
       uint32_t now = osKernelGetTickCount();
@@ -603,17 +632,28 @@ static void NetTask(void *argument)
       {
         linkDownSince = now;
       }
-      else if ((now - linkDownSince) > 6000U)
+      else if (!settled && (now - linkDownSince) > 6000U)
       {
-        DebugPrintf("PHY: no link for 6s in mode '%s', advancing\r\n",
-                    phyModes[phyModeIdx].name);
-        ApplyPhyMode(phyModeIdx + 1U);
+        if (failedCycles >= NET_SETTLE_AFTER)
+        {
+          settled = 1U;
+          DebugPrint("PHY: no link in any mode — assuming no cable, "
+                     "resting on auto-neg\r\n");
+          ApplyPhyMode(1U);            /* index 1 == "auto-neg all" */
+        }
+        else
+        {
+          DebugPrintf("PHY: no link for 6s in mode '%s', advancing\r\n",
+                      phyModes[phyModeIdx].name);
+          ApplyPhyMode(phyModeIdx + 1U);
+          failedCycles++;
+        }
         linkDownSince = osKernelGetTickCount();
       }
     }
     else
     {
-      linkDownSince = 0U;
+      linkDownSince = 0U;              /* note: the hunt counter is NOT reset here */
     }
 
     if (linkUp && !staticMode)
@@ -634,8 +674,11 @@ static void NetTask(void *argument)
         retryAtTick = 0U;
         SetNetState(NET_STATE_DHCP_WAIT);
         netDiag.discoverCycles++;
-        DebugPrintf("DHCP: discovering (PHY '%s')...\r\n",
-                    phyModes[phyModeIdx].name);
+        if (!settled)
+        {
+          DebugPrintf("DHCP: discovering (PHY '%s')...\r\n",
+                      phyModes[phyModeIdx].name);
+        }
       }
 
       switch (dhcpStarted ? DHCP_run() : (uint8_t)DHCP_RUNNING)
@@ -646,26 +689,61 @@ static void NetTask(void *argument)
           break;
 
         case DHCP_IP_LEASED:
+          if (settled || failedCycles)
+          {
+            DebugPrint("DHCP: leased — link is real, hunt reset\r\n");
+          }
+          failedCycles = 0U;
+          settled = 0U;
           SetNetState(NET_STATE_LEASED);
           break;
 
         case DHCP_FAILED:
-          DebugPrint("DHCP: no offer, backing off before retry\r\n");
+        {
+          /* Tear the session down and re-arm after a backoff, so a DHCP server
+           * that appears later is still picked up. */
+          uint32_t backoffMs = 5000U;
+
           SetNetState(NET_STATE_DHCP_FAILED);
-          /* Tear the session down and re-arm after the backoff, so a DHCP
-           * server that appears later is still picked up. */
           DHCP_stop();
           dhcpStarted = 0;
-          retryAtTick = osKernelGetTickCount() + 5000U;
+          if (failedCycles < 0xFFU)
+          {
+            failedCycles++;
+          }
+
+          if (failedCycles < NET_SETTLE_AFTER)
+          {
+            DebugPrint("DHCP: no offer, backing off before retry\r\n");
+            /* Try the next PHY mode before the next DISCOVER: if the link is
+             * negotiated wrongly (or the switch/cable can't do 100BASE-TX), no
+             * amount of retrying at the current setting will ever get an offer. */
+            ApplyPhyMode(phyModeIdx + 1U);
+          }
+          else
+          {
+            /* Every mode has now been tried and none produced an offer. Either
+             * there is no DHCP server on this segment, or the "link up" the PHY
+             * reports is the phantom one an unconnected port yields under
+             * auto-negotiation — which is what an RS-485-only unit with no
+             * cable looks like. Nothing is left to try, so stop cycling modes
+             * and drop to a slow retry instead of re-hunting every few seconds
+             * on a line the host protocol also has to share. */
+            backoffMs = 60000U;
+            if (!settled)
+            {
+              settled = 1U;
+              DebugPrint("DHCP: no offer in any PHY mode — retrying every 60s\r\n");
+            }
+          }
+
+          retryAtTick = osKernelGetTickCount() + backoffMs;
           if (retryAtTick == 0U)
           {
             retryAtTick = 1U;   /* 0 is the "no backoff pending" sentinel */
           }
-          /* Try the next PHY mode before the next DISCOVER: if the link is
-           * negotiated wrongly (or the switch/cable can't do 100BASE-TX), no
-           * amount of retrying at the current setting will ever get an offer. */
-          ApplyPhyMode(phyModeIdx + 1U);
           break;
+        }
 
         case DHCP_RUNNING:
         default:
