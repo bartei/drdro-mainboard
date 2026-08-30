@@ -1,24 +1,24 @@
 name: Release
 
 # Semantic release (python-semantic-release, same tooling as the other drdro-* repos).
-# push to master -> OFFICIAL stable release (vX.Y.Z) — gated on the test suites
+# push to master -> OFFICIAL stable release (vX.Y.Z) — gated on the native unit tests
 # push to dev    -> next version as a BETA prerelease (vX.Y.Z-beta.N, GitHub prerelease)
 #
-# ONE VERSION FOR THE WHOLE STACK: a single tag versions firmware and host software. Both
-# are built INSIDE `semantic-release version` (build_command = tools/build-release.sh) so
-# the firmware binaries embed the exact released version (FW_VERSION -> app/bootloader
-# support scripts) and the host wheel carries it in its metadata. Release notes fold beta
-# changes into the stable release (templates/.release_notes.md.j2).
+# FIRMWARE ONLY. The host software ships from drdro-software-f4 on its own version stream;
+# a tag here versions the firmware alone. The binaries are built INSIDE
+# `semantic-release version` (build_command = firmware/tools/build-release.sh) so they
+# embed the exact released version (FW_VERSION -> app/bootloader support scripts). Release
+# notes fold beta changes into the stable release (templates/.release_notes.md.j2).
 #
 # Assets staged in firmware/dist/:
 #   drdro-mainboard-app.{bin,hex,elf}          the application (.bin feeds dro_update.py
 #                                              and the in-app updater — the automated path)
 #   drdro-mainboard-bootloader.{bin,hex,elf}   the IAP bootloader (ST-Link only)
 #   drdro-mainboard-factory.hex                merged bootloader+app for blank boards
-#   SHA256SUMS.txt                             covers ALL assets, firmware and software
-# Assets staged in software/dist/:
-#   drdro-software.zip                         host software: the software/ tree plus a
-#                                              prebuilt wheel (installed by the update page)
+#   SHA256SUMS.txt                             covers every asset
+#
+# Asset names are the contract with the updater in drdro-software-f4 — renaming one breaks
+# release resolution on every deployed unit.
 
 on:
   push:
@@ -54,45 +54,14 @@ jobs:
           key: pio-${{ runner.os }}-${{ hashFiles('firmware/app/platformio.ini', 'firmware/bootloader/platformio.ini') }}
           restore-keys: pio-${{ runner.os }}-
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-
       - name: Install PlatformIO + semantic-release
         run: |
           pip install --upgrade platformio
           pipx install python-semantic-release
 
-      # The release gate: no green tests, no release. Both halves ship under one version,
-      # so both suites gate the tag.
+      # The release gate: no green tests, no release.
       - name: Run firmware native unit tests
         run: pio test -d firmware/app -e native
-
-      - name: Run host software tests
-        working-directory: software
-        env:
-          # No display on the runner. tests/conftest.py sets these too (so a local Linux
-          # run behaves identically); they are repeated here to make the requirement
-          # visible at the workflow level. KIVY_WINDOW is the load-bearing one: the runner
-          # has libX11 without an X server, and Kivy's x11 provider otherwise wins over
-          # sdl2 and calls exit(102) with no output at all.
-          KIVY_NO_ARGS: "1"
-          KIVY_WINDOW: sdl2
-          SDL_VIDEODRIVER: dummy
-          SDL_AUDIODRIVER: dummy
-          KIVY_GL_BACKEND: mock
-        # Failures are echoed back as ::error:: annotations, not just buried in the step
-        # log — the annotation is visible through the public API, so a red release can be
-        # diagnosed without downloading logs.
-        run: |
-          set -o pipefail
-          if ! uv sync 2>&1 | tee /tmp/uv-sync.log; then
-            echo "::error::uv sync failed (rc=$?): $(tail -c 900 /tmp/uv-sync.log | tr '\n' ' ')"
-            exit 1
-          fi
-          if ! uv run pytest -q 2>&1 | tee /tmp/pytest.log; then
-            echo "::error::host tests failed (rc=$?): $(tail -c 1800 /tmp/pytest.log | tr '\n' ' ')"
-            exit 1
-          fi
 
       - name: Semantic release (version -> build firmware -> tag -> publish + assets)
         env:
@@ -114,7 +83,7 @@ jobs:
               echo
               echo '### Assets'
               echo '```'
-              ls -lh firmware/dist/ software/dist/
+              ls -lh firmware/dist/
               cat firmware/dist/SHA256SUMS.txt
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"

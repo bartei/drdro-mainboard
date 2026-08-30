@@ -8,6 +8,6 @@
 *.epro2 binary
 
 # Shell scripts ALWAYS check out with LF, on every platform. The release build runs
-# tools/build-release.sh on an Ubuntu runner; a CRLF checkout (which a Windows dev box
+# firmware/tools/build-release.sh on an Ubuntu runner; a CRLF checkout (which a Windows dev box
 # with core.autocrlf=true would otherwise produce) makes bash fail on the shebang line.
 *.sh text eol=lf

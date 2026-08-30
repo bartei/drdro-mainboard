@@ -15,11 +15,11 @@
 #
 # Run from the repo root or firmware/: paths are resolved relative to this script.
 #
-# NOTE: this builds the FIRMWARE half only. Releases go through tools/build-release.sh at
-# the repo root, which calls this script, then builds the host software and REPLACES the
-# firmware-only dist/SHA256SUMS.txt written here with a combined manifest covering every
-# release asset. Running this script directly (a firmware-only local build) is still fine
-# and leaves the firmware-only manifest in place.
+# This IS the release build: python-semantic-release calls it directly as build_command
+# (root pyproject.toml), and `semantic-release publish` uploads everything it stages in
+# dist/. It used to be the firmware half of a root tools/build-release.sh that also built
+# the host software; that software now ships from drdro-software-f4 on its own version
+# stream, so this script stands alone and its SHA256SUMS.txt is the release manifest.
 set -euo pipefail
 
 if [ -n "${NEW_VERSION:-}" ]; then

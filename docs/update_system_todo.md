@@ -1,5 +1,12 @@
 # Update System — Monorepo Release & Single-Step Update
 
+> **SUPERSEDED (2026-08-30).** The host software has been deprecated out of this repo and
+> now ships from `drdro-software-f4`, which versions itself. The single-version stack this
+> tracker describes no longer exists: a tag here versions the firmware alone, releases
+> carry firmware assets only, and `software/` plus the root `tools/build-release.sh` are
+> gone. Kept as the design record for the update flow and the frozen bootloader/YMODEM
+> interface, which drdro-software-f4 still drives. Everything below is historical.
+
 > Phased tracker for consolidating software + firmware releases onto a **single version
 > tag** published from this monorepo, and collapsing the two-page developer update flow
 > into a **one-button user operation**. Mirrors the repo convention (design context inline;
